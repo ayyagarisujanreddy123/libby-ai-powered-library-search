@@ -57,17 +57,21 @@ class OpenAIService {
       if (options?.stream) {
         // Handle streaming response
         let fullResponse = '';
-        for await (const chunk of response) {
-          const content = chunk.choices[0]?.delta?.content || '';
-          fullResponse += content;
+        if (response && typeof response[Symbol.asyncIterator] === 'function') {
+          for await (const chunk of response as any) {
+            const content = chunk.choices[0]?.delta?.content || '';
+            fullResponse += content;
+          }
         }
         return fullResponse;
       } else {
-        return response.choices[0]?.message?.content || '';
+        const completion = response as any;
+        return completion.choices[0]?.message?.content || '';
       }
     } catch (error) {
       console.error('Error generating chat completion:', error);
-      throw new Error('Failed to generate chat completion');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to generate chat completion: ${errorMessage}`);
     }
   }
 
@@ -115,12 +119,28 @@ class OpenAIService {
         role: 'system',
         content: systemPrompt || `You are Libby, an AI-powered library assistant. 
         Use the provided context to answer questions about library procedures, policies, and guidelines. 
-        Be helpful, accurate, and professional. If the context doesn't contain enough information 
-        to answer the question, say so and suggest how the user might find more information.`
+        Be concise, organized, and professional. Focus on the most important points. 
+        Use numbered lists (1, 2, 3) for clarity - NEVER use asterisks (*) or bullet points. 
+        Keep answers brief but complete.`
       },
       {
         role: 'user',
-        content: `Context: ${context}\n\nQuestion: ${query}`
+        content: `Context from library documents:
+${context}
+
+Question: ${query}
+
+Provide a concise, well-organized answer using only the information from the context above. 
+Use numbered lists (1, 2, 3) if listing procedures or multiple points. 
+CRITICAL: Each numbered point MUST be on a separate line. Put a line break after each point.
+Format example:
+1. First point here (on its own line)
+
+2. Second point here (on its own line)
+
+3. Third point here (on its own line)
+DO NOT use asterisks (*), dashes (-), or bullet points. 
+Keep it brief and focused on the most important points.`
       }
     ];
 

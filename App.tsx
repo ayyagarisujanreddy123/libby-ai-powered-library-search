@@ -1,8 +1,44 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { Search, Book, FileText, Users, HelpCircle, Sparkles, BookOpen, Clock, TrendingUp, Send, Bot, User } from 'lucide-react';
 import { useChat } from './hooks/useChat';
 
-export default function LibbyChatbot() {
+console.log('App.tsx: Starting to load...');
+
+// Error Boundary Component
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('App.tsx: Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ color: 'white', padding: '20px', fontFamily: 'monospace', background: '#dc2626', borderRadius: '8px', margin: '20px' }}>
+          <h1>Error in App Component</h1>
+          <pre style={{ background: '#1f1f1f', padding: '10px', borderRadius: '4px', overflow: 'auto' }}>
+            {this.state.error?.message || 'Unknown error'}
+          </pre>
+          <pre style={{ background: '#1f1f1f', padding: '10px', borderRadius: '4px', overflow: 'auto', fontSize: '12px' }}>
+            {this.state.error?.stack || ''}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function LibbyChatbotInner() {
+  console.log('App.tsx: LibbyChatbot component rendering...');
   const [isInitialState, setIsInitialState] = useState(true);
   const [books, setBooks] = useState([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -465,3 +501,12 @@ export default function LibbyChatbot() {
   );
 }
 
+// Export wrapped in error boundary
+export default function LibbyChatbot() {
+  console.log('App.tsx: LibbyChatbot wrapper rendering...');
+  return (
+    <ErrorBoundary>
+      <LibbyChatbotInner />
+    </ErrorBoundary>
+  );
+}

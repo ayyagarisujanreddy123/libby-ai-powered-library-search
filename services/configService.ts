@@ -23,7 +23,7 @@ class ConfigService {
     try {
       // OpenAI Configuration
       const openaiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      const openaiModel = import.meta.env.VITE_OPENAI_MODEL || 'gpt-4';
+      const openaiModel = import.meta.env.VITE_OPENAI_MODEL || 'gpt-3.5-turbo';
       const embeddingModel = import.meta.env.VITE_EMBEDDING_MODEL || 'text-embedding-3-small';
 
       if (!openaiApiKey) {
@@ -40,6 +40,7 @@ class ConfigService {
       const pineconeApiKey = import.meta.env.VITE_PINECONE_API_KEY;
       const pineconeEnvironment = import.meta.env.VITE_PINECONE_ENVIRONMENT;
       const pineconeIndexName = import.meta.env.VITE_PINECONE_INDEX_NAME || 'libby-library-search';
+      const pineconeHost = import.meta.env.VITE_PINECONE_HOST; // Optional: full host URL for REST API
 
       if (!pineconeApiKey || !pineconeEnvironment) {
         console.warn('Pinecone API key or environment not found in environment variables');
@@ -48,6 +49,7 @@ class ConfigService {
           apiKey: pineconeApiKey,
           environment: pineconeEnvironment,
           indexName: pineconeIndexName,
+          host: pineconeHost, // Use host URL if provided, otherwise will be constructed
         };
       }
     } catch (error) {

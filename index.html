@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>Libby — AI-Powered Library Search</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -11,21 +12,6 @@
       darkMode: 'class',
     }
   </script>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@18.3.1/index.mjs",
-    "react/jsx-runtime": "https://aistudiocdn.com/react@18.3.1/jsx-runtime.mjs",
-    "react-dom": "https://aistudiocdn.com/react-dom@18.3.1/index.mjs",
-    "react-dom/client": "https://aistudiocdn.com/react-dom@18.3.1/client.mjs",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@0.14.0/dist/index.js",
-    "framer-motion": "https://aistudiocdn.com/framer-motion@11.3.8/dist/framer-motion.mjs",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@0.417.0/dist/lucide-react.mjs",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/"
-  }
-}
-</script>
 <style>
   @keyframes fadeIn {
     from {
@@ -134,9 +120,42 @@
   }
 </style>
 <link rel="stylesheet" href="/index.css">
-</head>
-  <body>
-    <div id="root"></div>
+  </head>
+  <body style="margin: 0; padding: 0; background: #111827; min-height: 100vh;">
+    <div id="root" style="min-height: 100vh;">
+      <div style="color: white; padding: 20px; font-family: monospace;">
+        Loading Libby...
+      </div>
+    </div>
+    <script>
+      // Polyfill for Node.js global and process variables in browser (Safari compatibility)
+      (function() {
+        if (typeof global === 'undefined') {
+          window.global = window.globalThis || window;
+        }
+        if (typeof process === 'undefined') {
+          window.process = { env: {} };
+        }
+        // Additional Safari compatibility fixes
+        if (!window.Promise.prototype.finally) {
+          // Polyfill for Promise.finally if needed (older Safari)
+          Promise.prototype.finally = function(callback) {
+            return this.then(
+              value => Promise.resolve(callback()).then(() => value),
+              reason => Promise.resolve(callback()).then(() => { throw reason; })
+            );
+          };
+        }
+        console.log('HTML: Polyfills set, browser:', navigator.userAgent.includes('Safari') ? 'Safari' : 'Other');
+        console.log('HTML: Global polyfill set, loading index.tsx...');
+      })();
+    </script>
     <script type="module" src="/index.tsx"></script>
+    <noscript>
+      <div style="color: white; padding: 20px; text-align: center;">
+        <h1>JavaScript Required</h1>
+        <p>This application requires JavaScript to be enabled. Please enable JavaScript and refresh the page.</p>
+      </div>
+    </noscript>
   </body>
 </html>

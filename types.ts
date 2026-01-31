@@ -45,6 +45,7 @@ export interface PineconeConfig {
   apiKey: string;
   environment: string;
   indexName: string;
+  host?: string; // Optional host URL for REST API fallback
 }
 
 export interface VectorMetadata {

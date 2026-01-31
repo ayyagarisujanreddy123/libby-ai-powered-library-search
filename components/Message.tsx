@@ -46,7 +46,7 @@ const Message: React.FC<MessageProps> = ({ message }) => {
               : 'bg-blue-600 text-white rounded-tr-none'
           }`}
         >
-          <p className="leading-relaxed min-h-[1.75rem]">
+          <p className="leading-relaxed min-h-[1.75rem] whitespace-pre-wrap">
             {message.text}
             {message.isStreaming && <span className="inline-block w-0.5 h-5 bg-gray-100 animate-pulse ml-1 align-bottom"></span>}
           </p>

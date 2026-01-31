@@ -1,4 +1,3 @@
-import { Pinecone } from '@pinecone-database/pinecone';
 import { 
   PineconeConfig, 
   VectorMetadata, 
@@ -6,17 +5,138 @@ import {
   VectorSearchRequest 
 } from '../types';
 
+// Detect Safari browser (excluding Chrome-based browsers)
+function isSafari(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  // Check for Safari but exclude Chrome, Edge, and other Chromium-based browsers
+  const isSafariUA = /^((?!chrome|android|chromium|edge).)*safari/i.test(ua);
+  // Also check for WebKit without Chrome
+  const hasWebKit = /webkit/i.test(ua) && !/chrome/i.test(ua) && !/chromium/i.test(ua);
+  return isSafariUA || (hasWebKit && /safari/i.test(ua));
+}
+
+// Dynamic import for Pinecone to handle browser compatibility
+let PineconeClass: any = null;
+let useRestAPI = false;
+
+// Check if we should use REST API (Safari or if SDK fails)
+if (isSafari()) {
+  console.log('Safari detected - using REST API instead of Pinecone SDK');
+  useRestAPI = true;
+}
+
+async function getPinecone() {
+  // Skip SDK in Safari, always use REST API
+  if (isSafari() || useRestAPI) {
+    return null;
+  }
+  
+  if (!PineconeClass) {
+    try {
+      const pineconeModule = await import('@pinecone-database/pinecone');
+      PineconeClass = pineconeModule.Pinecone;
+      console.log('Pinecone SDK loaded successfully');
+    } catch (error) {
+      console.warn('Failed to load Pinecone SDK, will use REST API fallback:', error);
+      useRestAPI = true;
+      PineconeClass = null;
+    }
+  }
+  return PineconeClass;
+}
+
+// REST API fallback for browser environments
+async function queryPineconeREST(
+  apiKey: string,
+  indexName: string,
+  vector: number[],
+  topK: number,
+  host?: string
+): Promise<any> {
+  // For serverless indexes, use the host URL directly
+  // Format: https://{index-name}-{project-id}.svc.{environment}.pinecone.io/query
+  let queryUrl: string;
+  
+  if (host) {
+    // Remove trailing slash if present, then append /query
+    const cleanHost = host.trim().replace(/\/+$/, '');
+    queryUrl = `${cleanHost}/query`;
+  } else {
+    // Try to construct from index name and environment (may not work for all setups)
+    const env = import.meta.env.VITE_PINECONE_ENVIRONMENT || 'us-east-1';
+    queryUrl = `https://${indexName}.svc.${env}.pinecone.io/query`;
+  }
+  
+  console.log('Using Pinecone REST API:', queryUrl);
+  console.log('Vector dimension:', vector.length);
+  console.log('TopK:', topK);
+  
+  try {
+    const response = await fetch(queryUrl, {
+      method: 'POST',
+      headers: {
+        'Api-Key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        vector,
+        topK,
+        includeMetadata: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Pinecone REST API error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      throw new Error(`Pinecone REST API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('Pinecone REST API response received:', {
+      matches: data.matches?.length || 0
+    });
+    return data;
+  } catch (error) {
+    console.error('Pinecone REST API fetch error:', error);
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error: Failed to connect to Pinecone. Please check your internet connection and CORS settings.');
+    }
+    throw error;
+  }
+}
+
 class PineconeService {
-  private client: Pinecone;
+  private client: any;
   private index: any;
   private config: PineconeConfig;
+  private isInitialized: boolean = false;
 
   constructor(config: PineconeConfig) {
     this.config = config;
-    this.client = new Pinecone({
-      apiKey: config.apiKey,
-      environment: config.environment,
-    });
+  }
+
+  private async ensureClient() {
+    // In Safari or if REST API is preferred, skip client initialization
+    if (isSafari() || useRestAPI) {
+      return; // Will use REST API directly
+    }
+    
+    if (!this.client) {
+      const Pinecone = await getPinecone();
+      if (Pinecone) {
+        // Pinecone v2.x only needs API key, environment is no longer used
+        this.client = new Pinecone({
+          apiKey: this.config.apiKey,
+        });
+      } else {
+        useRestAPI = true;
+      }
+    }
   }
 
   /**
@@ -24,11 +144,49 @@ class PineconeService {
    */
   async initialize(): Promise<void> {
     try {
+      // In Safari, skip SDK initialization and use REST API directly
+      if (isSafari() || useRestAPI) {
+        console.log('Using REST API mode (Safari or SDK unavailable)');
+        this.isInitialized = true;
+        
+        // Verify configuration
+        const apiHost = this.config.host || 
+          `https://${this.config.indexName}.svc.${this.config.environment || 'us-east-1'}.pinecone.io`;
+        console.log('Pinecone REST API configuration:');
+        console.log('  - Host URL:', apiHost);
+        console.log('  - Index name:', this.config.indexName);
+        console.log('  - Environment:', this.config.environment || 'us-east-1');
+        console.log('  - API Key:', this.config.apiKey ? `${this.config.apiKey.substring(0, 9)}...` : 'Not set');
+        return;
+      }
+      
+      await this.ensureClient();
+      if (!this.client) {
+        useRestAPI = true;
+        this.isInitialized = true;
+        return;
+      }
+      
       this.index = this.client.index(this.config.indexName);
-      console.log('Pinecone index initialized:', this.config.indexName);
+      console.log('Pinecone index initialized (SDK mode):', this.config.indexName);
+      this.isInitialized = true;
+      
+      // Verify the index is accessible
+      try {
+        const stats = await this.index.describeIndexStats();
+        console.log('Pinecone index stats:', {
+          totalVectors: stats.totalRecordCount || stats.totalVectorCount || 0,
+          dimension: stats.dimension,
+          indexFullness: stats.indexFullness
+        });
+      } catch (statsError) {
+        console.warn('Could not fetch index stats (index might be empty or not ready):', statsError);
+      }
     } catch (error) {
       console.error('Error initializing Pinecone index:', error);
-      throw new Error('Failed to initialize Pinecone index');
+      console.warn('Falling back to REST API mode');
+      useRestAPI = true;
+      this.isInitialized = true;
     }
   }
 
@@ -83,6 +241,10 @@ class PineconeService {
     request: VectorSearchRequest
   ): Promise<VectorSearchResult[]> {
     try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      
       const searchRequest = {
         vector: request.vector,
         topK: request.topK || 5,
@@ -90,16 +252,70 @@ class PineconeService {
         filter: request.filter,
       };
 
-      const response = await this.index.query(searchRequest);
+      console.log('Executing Pinecone query with vector dimension:', searchRequest.vector.length);
       
-      return response.matches.map((match: any) => ({
+      // Use REST API if Safari or SDK not available, otherwise try SDK first
+      let response: any;
+      const host = this.config.host || 
+        `https://${this.config.indexName}.svc.${this.config.environment || 'us-east-1'}.pinecone.io`;
+      
+      if (isSafari() || useRestAPI || !this.index) {
+        // Use REST API directly (Safari or fallback)
+        console.log('Using REST API for Pinecone query (Safari or fallback)');
+        response = await queryPineconeREST(
+          this.config.apiKey,
+          this.config.indexName,
+          searchRequest.vector,
+          searchRequest.topK || 5,
+          host
+        );
+      } else {
+        // Try SDK first
+        try {
+          response = await this.index.query(searchRequest);
+          console.log('Pinecone SDK query successful');
+        } catch (sdkError) {
+          console.warn('Pinecone SDK query failed, falling back to REST API:', sdkError);
+          useRestAPI = true;
+          response = await queryPineconeREST(
+            this.config.apiKey,
+            this.config.indexName,
+            searchRequest.vector,
+            searchRequest.topK || 5,
+            host
+          );
+        }
+      }
+      
+      console.log('Pinecone query response:', JSON.stringify(response, null, 2));
+      
+      if (!response || !response.matches) {
+        console.warn('Pinecone returned empty or invalid response:', response);
+        return [];
+      }
+      
+      console.log(`Pinecone returned ${response.matches.length} matches`);
+      response.matches.forEach((match: any, index: number) => {
+        console.log(`Match ${index + 1}:`, {
+          id: match.id,
+          score: match.score,
+          hasMetadata: !!match.metadata,
+          metadataKeys: match.metadata ? Object.keys(match.metadata) : [],
+        });
+      });
+      
+      const results = response.matches.map((match: any) => ({
         id: match.id,
-        score: match.score,
+        score: match.score || 0,
         metadata: match.metadata as VectorMetadata,
       }));
+      
+      console.log('Processed results:', results.length);
+      return results;
     } catch (error) {
       console.error('Error searching vectors:', error);
-      throw new Error('Failed to search vectors');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw error; // Re-throw to let searchByText handle it with better context
     }
   }
 
@@ -115,15 +331,43 @@ class PineconeService {
     }
   ): Promise<VectorSearchResult[]> {
     try {
+      console.log('Generating embedding for query:', text.substring(0, 50) + '...');
       const embedding = await embeddingFunction(text);
-      return this.searchVectors({
+      console.log('Embedding generated, dimension:', embedding.length);
+      
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      
+      const results = await this.searchVectors({
         vector: embedding,
         topK: options?.topK || 5,
         filter: options?.filter,
       });
+      
+      console.log(`Pinecone search returned ${results.length} results`);
+      return results;
     } catch (error) {
       console.error('Error searching by text:', error);
-      throw new Error('Failed to search by text');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : '';
+      
+      // Check for CORS errors
+      if (errorMessage.includes('CORS') || errorMessage.includes('fetch') || errorMessage.includes('NetworkError')) {
+        throw new Error(`CORS Error: Pinecone API cannot be called directly from the browser. You need a backend proxy. Details: ${errorMessage}`);
+      }
+      
+      // Check for authentication errors
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('API key')) {
+        throw new Error(`Authentication Error: Invalid Pinecone API key. Please check your VITE_PINECONE_API_KEY. Details: ${errorMessage}`);
+      }
+      
+      // Check for index errors
+      if (errorMessage.includes('404') || errorMessage.includes('Not Found') || errorMessage.includes('index')) {
+        throw new Error(`Index Error: Pinecone index "${this.config.indexName}" not found. Please verify the index name in your .env file. Details: ${errorMessage}`);
+      }
+      
+      throw new Error(`Failed to search by text: ${errorMessage}. ${errorStack ? `Stack: ${errorStack.substring(0, 200)}` : ''}`);
     }
   }
 

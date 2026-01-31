@@ -1,133 +1,119 @@
-import { GoogleGenAI, Type } from '@google/genai';
 import type { Message, Source } from '../types';
 import { UserType } from '../types';
+import RAGService from './ragService';
+import ConfigService from './configService';
 
-let ai: GoogleGenAI;
+let ragService: RAGService | null = null;
+let isInitializing = false;
 
-// Lazily initialize the AI client on first use to make app loading more robust.
-const getAiClient = () => {
-  if (!ai) {
-    if (!process.env.API_KEY) {
-      throw new Error("API_KEY is not configured. Please check your environment variables.");
+// Lazily initialize the RAG service on first use
+const getRAGService = async (): Promise<RAGService> => {
+  if (!ragService && !isInitializing) {
+    isInitializing = true;
+    try {
+      const configService = ConfigService.getInstance();
+      const openaiConfig = configService.getOpenAIConfig();
+      const pineconeConfig = configService.getPineconeConfig();
+      
+      if (!openaiConfig || !openaiConfig.apiKey) {
+        throw new Error("OpenAI API key is not configured. Please check your environment variables (VITE_OPENAI_API_KEY).");
+      }
+      
+      if (!pineconeConfig || !pineconeConfig.apiKey) {
+        throw new Error("Pinecone API key is not configured. Please check your environment variables (VITE_PINECONE_API_KEY).");
+      }
+      
+      ragService = new RAGService(openaiConfig, pineconeConfig);
+      await ragService.initialize();
+      console.log('RAG Service initialized with Pinecone');
+    } catch (error) {
+      isInitializing = false;
+      console.error('Failed to initialize RAG service:', error);
+      throw error;
+    } finally {
+      isInitializing = false;
     }
-    ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
-  return ai;
-};
-
-const model = 'gemini-2.5-flash';
-
-// This simulates our knowledge base for Retrieval-Augmented Generation (RAG)
-const knowledgeBase: { [key: string]: { text: string; sources: Source[] } } = {
-  'lost book': {
-    text: "From Library_SOP_v2.1.pdf, Page 14: If a patron reports a lost book, first, check the system to confirm its status. If confirmed lost, inform the patron about the replacement fee, which is the original cost of the book plus a $5 processing fee. The fee can be paid at the main circulation desk. Offer to help them find an alternative title if needed.",
-    sources: [
-      { name: 'Library_SOP_v2.1.pdf', page: 14 },
-    ],
-  },
-  'fire alarm': {
-    text: "From Emergency_Protocols.pdf, Page 3: In the event of a fire alarm, immediately direct all patrons and staff to the nearest emergency exit. Do not use elevators. The designated assembly point is the main park across the street. A head count must be performed by the senior librarian on duty once everyone has assembled.",
-    sources: [{ name: 'Emergency_Protocols.pdf', page: 3 }],
-  },
-  'late fee': {
-    text: 'From Circulation_Policies.docx, Page 5: Overdue items accrue a late fee of $0.25 per day, per item, with a maximum fee of $10.00 per item. Fees can be paid online through the member portal or in person at any circulation desk. Patrons with outstanding fees over $25 will have their borrowing privileges suspended until the balance is paid.',
-    sources: [{ name: 'Circulation_Policies.docx', page: 5 }],
-  },
-   'computer use': {
-    text: "From Public_Access_Guide.pdf, Page 2: Library members can use public computers for up to 2 hours per day by logging in with their library card number and PIN. Guest passes for non-members are available at the information desk and are valid for one 60-minute session. All users must agree to the library's acceptable use policy before their session begins.",
-    sources: [{ name: 'Public_Access_Guide.pdf', page: 2 }]
+  
+  if (!ragService) {
+    throw new Error("RAG service is still initializing. Please try again.");
   }
+  
+  return ragService;
 };
 
-const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    text: {
-      type: Type.STRING,
-      description: "The helpful, conversational answer to the user's question, synthesized from the provided context.",
-    },
-    sources: {
-      type: Type.ARRAY,
-      description: "An array of source documents and page numbers that were used to formulate the answer. This must be extracted from the provided context.",
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          page: { type: Type.INTEGER },
-        },
-        required: ['name', 'page'],
-      },
-    },
-  },
-  required: ['text', 'sources'],
-};
 
 export const sendMessageToBot = async (message: string): Promise<Message> => {
-  console.log('Processing message with Gemini RAG:', message);
-
-  // 1. Retrieval: Find relevant context from our knowledge base.
-  const lowerCaseMessage = message.toLowerCase();
-  let context = '';
-
-  for (const keyword in knowledgeBase) {
-    if (lowerCaseMessage.includes(keyword)) {
-      context += knowledgeBase[keyword].text + '\n\n';
-    }
-  }
+  console.log('Processing message with Pinecone RAG:', message);
 
   try {
-    const aiClient = getAiClient(); // Get the initialized client
+    // Get the RAG service (initializes Pinecone if needed)
+    const rag = await getRAGService();
+    
+    // Use RAG service to generate response with Pinecone vector search
+    const systemPrompt = `You are Libby, a helpful AI assistant for library staff. 
 
-    if (context) {
-      // 2a. Generation (with context)
-      const prompt = `You are Libby, a helpful AI assistant for library staff. Your task is to answer employee questions based ONLY on the provided context from internal library documents. Be friendly and concise. If the answer is not in the context, say so.
+Your task is to provide concise, well-organized answers using information from library documents.
 
-Context from documents:
----
-${context}
----
+RESPONSE GUIDELINES:
+1. Be CONCISE: Answer directly and briefly (2-4 key points maximum)
+2. Be ORGANIZED: Use numbered lists (1, 2, 3) when listing procedures or multiple points - NEVER use asterisks (*) or bullet points
+3. Be FOCUSED: Only include the most important and relevant information
+4. Be CLEAR: Use simple, direct language
+5. Answer the question first, then provide essential details if needed
+6. Keep responses under 150 words unless the question requires detailed procedures
+7. If multiple topics are covered, organize them with clear headings or sections
 
-User question: "${message}"
+FORMATTING RULES:
+- Start with a direct answer to the question
+- Use numbered lists (1, 2, 3) for procedures or multiple points
+- CRITICAL: Each numbered point MUST be on a separate line. Put a line break after each point.
+- Format example:
+  1. First point here (on its own line)
+  
+  2. Second point here (on its own line)
+  
+  3. Third point here (on its own line)
+- DO NOT use asterisks (*), dashes (-), or bullet points
+- Keep each point brief and actionable
+- Use clear headings for different sections if needed
+- End with source citations if needed
 
-Based on the context, please provide a direct answer to the user's question and list the exact sources you used from the context.`;
+Be friendly but professional. Get to the point quickly.`;
+    
+    const ragResponse = await rag.generateResponse(message, {
+      topK: 5, // Reduced to focus on most relevant documents
+      systemPrompt: systemPrompt,
+      temperature: 0.3, // Slightly higher for more natural, concise language
+      maxTokens: 500 // Reduced significantly for shorter responses
+    });
 
-      const response = await aiClient.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-        },
-      });
-
-      const jsonText = response.text.trim();
-      const botResponse = JSON.parse(jsonText);
-      
-      return {
-        id: `bot-${Date.now()}`,
-        text: botResponse.text,
-        user: UserType.BOT,
-        sources: botResponse.sources,
-      };
-    } else {
-      // 2b. Generation (no context)
-      const prompt = `You are Libby, a helpful AI assistant for library staff. A user asked: "${message}". You could not find any relevant information in the internal library documents. Politely inform the user that you couldn't find specific information on their topic and suggest they could rephrase their question.`;
-
-      const response = await aiClient.models.generateContent({
-        model,
-        contents: prompt,
-      });
-
-      return {
-        id: `bot-${Date.now()}`,
-        text: response.text,
-        user: UserType.BOT,
-        sources: [],
-      };
-    }
+    return {
+      id: `bot-${Date.now()}`,
+      text: ragResponse.answer,
+      user: UserType.BOT,
+      sources: ragResponse.sources,
+    };
   } catch (error) {
     console.error("Error in sendMessageToBot:", error);
-    const errorMessage = error instanceof Error ? error.message : 'Sorry, I encountered an issue while processing your request. Please try again.';
+    let errorMessage = 'Sorry, I encountered an issue while processing your request. Please try again.';
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      // Provide more user-friendly error messages
+      if (errorMessage.includes('API key')) {
+        errorMessage = 'API key is not configured. Please check your environment variables.';
+      } else if (errorMessage.includes('Pinecone')) {
+        errorMessage = 'Pinecone vector database is not configured or not accessible. Please check your Pinecone configuration.';
+      } else if (errorMessage.includes('CORS') || errorMessage.includes('Network')) {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else if (errorMessage.includes('rate limit')) {
+        errorMessage = 'Rate limit exceeded. Please try again in a moment.';
+      } else if (errorMessage.includes('index') || errorMessage.includes('Index')) {
+        errorMessage = 'Pinecone index not found or not ready. Please ensure your Pinecone index exists and is configured correctly.';
+      }
+    }
+    
     return {
       id: `error-${Date.now()}`,
       text: errorMessage,
