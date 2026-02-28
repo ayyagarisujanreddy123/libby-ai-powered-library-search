@@ -130,13 +130,13 @@ function LibbyChatbotInner() {
 
       {/* Main Content */}
       <div className="relative z-10 w-full max-w-4xl h-full flex flex-col" style={{ perspective: '1500px' }}>
-        
+
         {/* Header with Logo */}
         <div className="text-center mb-6 animate-fadeIn">
           <div className="flex items-center justify-center mb-4">
             {/* JARVIS-style Interactive Logo - Smaller */}
             <div className="relative w-32 h-32 transform hover:scale-110 transition-all duration-500 cursor-pointer group">
-              
+
               {/* Outer rotating ring 1 */}
               <div className="absolute inset-0 rounded-full border-2 border-white/40" style={{ animation: 'rotate 8s linear infinite' }}>
                 <div className="absolute top-0 left-1/2 w-1.5 h-1.5 bg-white rounded-full transform -translate-x-1/2 -translate-y-1/2 shadow-lg shadow-white/50"></div>
@@ -180,7 +180,7 @@ function LibbyChatbotInner() {
               <div className="absolute inset-10 rounded-full border-3 border-white/70 bg-black/80 backdrop-blur-xl shadow-2xl group-hover:border-white/90 transition-all duration-500">
                 {/* Pulsing core glow */}
                 <div className="absolute inset-0 rounded-full bg-white/10 animate-pulse" style={{ animationDuration: '2s' }}></div>
-                
+
                 {/* Center text */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-white font-bold text-lg tracking-[0.2em] group-hover:tracking-[0.3em] transition-all duration-500">LIBBY</span>
@@ -209,8 +209,8 @@ function LibbyChatbotInner() {
 
         {/* Chat Interface */}
         <div className="flex-1 flex flex-col bg-white/5 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/10 overflow-hidden"
-             style={{ boxShadow: '0 25px 50px rgba(0,0,0,0.9), 0 0 80px rgba(255,255,255,0.05)' }}>
-          
+          style={{ boxShadow: '0 25px 50px rgba(0,0,0,0.9), 0 0 80px rgba(255,255,255,0.05)' }}>
+
           {/* Chat Messages Area */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {isInitialState ? (
@@ -220,7 +220,7 @@ function LibbyChatbotInner() {
                   <h2 className="text-2xl font-bold text-white mb-4">Welcome to Libby!</h2>
                   <p className="text-gray-300 mb-6">I'm here to help you with library procedures, policies, and guidelines. How can I assist you today?</p>
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
                   {starterPrompts.map((prompt, i) => (
                     <button
@@ -255,31 +255,29 @@ function LibbyChatbotInner() {
                   >
                     <div className={`flex items-start gap-3 max-w-[80%] ${message.user === 'user' ? 'flex-row-reverse' : ''}`}>
                       {/* Avatar */}
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        message.user === 'user' ? 'bg-blue-600' : 'bg-white/20'
-                      }`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${message.user === 'user' ? 'bg-blue-600' : 'bg-white/20'
+                        }`}>
                         {message.user === 'user' ? (
                           <User className="w-4 h-4 text-white" />
                         ) : (
                           <Bot className="w-4 h-4 text-white" />
                         )}
                       </div>
-                      
+
                       {/* Message Bubble */}
-                      <div className={`px-4 py-3 rounded-2xl ${
-                        message.user === 'user'
+                      <div className={`px-4 py-3 rounded-2xl ${message.user === 'user'
                           ? 'bg-blue-600 text-white rounded-br-md'
                           : message.isError
-                          ? 'bg-red-500/20 text-red-200 border border-red-500/30 rounded-bl-md'
-                          : 'bg-white/10 text-white border border-white/20 rounded-bl-md'
-                      }`}>
-                        <p className="leading-relaxed">
+                            ? 'bg-red-500/20 text-red-200 border border-red-500/30 rounded-bl-md'
+                            : 'bg-white/10 text-white border border-white/20 rounded-bl-md'
+                        }`}>
+                        <p className="leading-relaxed whitespace-pre-wrap">
                           {message.text}
                           {message.isStreaming && (
                             <span className="inline-block w-0.5 h-4 bg-white animate-pulse ml-1 align-bottom"></span>
                           )}
                         </p>
-                        
+
                         {/* Sources */}
                         {message.sources && message.sources.length > 0 && (
                           <div className="mt-3 flex flex-wrap gap-2">
@@ -298,7 +296,7 @@ function LibbyChatbotInner() {
                     </div>
                   </div>
                 ))}
-                
+
                 {/* Typing Indicator */}
                 {isLoading && (
                   <div className="flex justify-start animate-fadeIn">
@@ -316,7 +314,7 @@ function LibbyChatbotInner() {
                     </div>
                   </div>
                 )}
-                
+
                 <div ref={messagesEndRef} />
               </>
             )}
