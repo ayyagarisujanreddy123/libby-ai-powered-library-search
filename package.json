@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test-pinecone": "node test-pinecone.js"
+    "test-pinecone": "node test-pinecone.js",
+    "crawl": "node crawl-ou-library.js"
   },
   "dependencies": {
     "react": "^18.3.1",

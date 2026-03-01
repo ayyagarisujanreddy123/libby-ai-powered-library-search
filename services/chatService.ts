@@ -14,15 +14,15 @@ const getRAGService = async (): Promise<RAGService> => {
       const configService = ConfigService.getInstance();
       const openaiConfig = configService.getOpenAIConfig();
       const pineconeConfig = configService.getPineconeConfig();
-      
+
       if (!openaiConfig || !openaiConfig.apiKey) {
         throw new Error("OpenAI API key is not configured. Please check your environment variables (VITE_OPENAI_API_KEY).");
       }
-      
+
       if (!pineconeConfig || !pineconeConfig.apiKey) {
         throw new Error("Pinecone API key is not configured. Please check your environment variables (VITE_PINECONE_API_KEY).");
       }
-      
+
       ragService = new RAGService(openaiConfig, pineconeConfig);
       await ragService.initialize();
       console.log('RAG Service initialized with Pinecone');
@@ -34,11 +34,11 @@ const getRAGService = async (): Promise<RAGService> => {
       isInitializing = false;
     }
   }
-  
+
   if (!ragService) {
     throw new Error("RAG service is still initializing. Please try again.");
   }
-  
+
   return ragService;
 };
 
@@ -49,38 +49,34 @@ export const sendMessageToBot = async (message: string): Promise<Message> => {
   try {
     // Get the RAG service (initializes Pinecone if needed)
     const rag = await getRAGService();
-    
-    // Use RAG service to generate response with Pinecone vector search
-    const systemPrompt = `You are Libby, a helpful AI assistant for library staff. 
 
-Your task is to provide concise, well-organized answers using information from library documents.
+    // Use RAG service to generate response with Pinecone vector search
+    const systemPrompt = `You are Libby, an AI assistant built for OU Libraries staff, Student Library Assistants (SLAs), and library leads.
+
+AUDIENCE: Your users are library EMPLOYEES — not patrons. They ask you questions so they can better assist patrons or understand internal procedures and policies.
+
+YOUR ROLE:
+- Answer from the perspective of HELPING STAFF do their job
+- Explain what the employee should DO or TELL the patron
+- Reference official OU Libraries procedures, policies, and services
+- Use language like "You should tell the patron...", "The procedure is...", "Direct them to..."
 
 RESPONSE GUIDELINES:
 1. Be CONCISE: Answer directly and briefly (2-4 key points maximum)
-2. Be ORGANIZED: Use numbered lists (1, 2, 3) when listing procedures or multiple points - NEVER use asterisks (*) or bullet points
-3. Be FOCUSED: Only include the most important and relevant information
-4. Be CLEAR: Use simple, direct language
-5. Answer the question first, then provide essential details if needed
-6. Keep responses under 150 words unless the question requires detailed procedures
-7. If multiple topics are covered, organize them with clear headings or sections
+2. Be ORGANIZED: Use numbered lists (1, 2, 3) for procedures or steps
+3. Be FOCUSED: Only include the most relevant information for the staff member
+4. Frame answers as staff instructions, not patron-facing advice
+5. Keep responses under 150 words unless detailed procedures are needed
 
 FORMATTING RULES:
 - Start with a direct answer to the question
 - Use numbered lists (1, 2, 3) for procedures or multiple points
-- CRITICAL: Each numbered point MUST be on a separate line. Put a line break after each point.
-- Format example:
-  1. First point here (on its own line)
-  
-  2. Second point here (on its own line)
-  
-  3. Third point here (on its own line)
+- CRITICAL: Each numbered point MUST be on a separate line with a line break after each
 - DO NOT use asterisks (*), dashes (-), or bullet points
 - Keep each point brief and actionable
-- Use clear headings for different sections if needed
-- End with source citations if needed
 
-Be friendly but professional. Get to the point quickly.`;
-    
+Be friendly, professional, and staff-oriented. Get to the point quickly.`;
+
     const ragResponse = await rag.generateResponse(message, {
       topK: 5, // Reduced to focus on most relevant documents
       systemPrompt: systemPrompt,
@@ -97,7 +93,7 @@ Be friendly but professional. Get to the point quickly.`;
   } catch (error) {
     console.error("Error in sendMessageToBot:", error);
     let errorMessage = 'Sorry, I encountered an issue while processing your request. Please try again.';
-    
+
     if (error instanceof Error) {
       errorMessage = error.message;
       // Provide more user-friendly error messages
@@ -113,7 +109,7 @@ Be friendly but professional. Get to the point quickly.`;
         errorMessage = 'Pinecone index not found or not ready. Please ensure your Pinecone index exists and is configured correctly.';
       }
     }
-    
+
     return {
       id: `error-${Date.now()}`,
       text: errorMessage,

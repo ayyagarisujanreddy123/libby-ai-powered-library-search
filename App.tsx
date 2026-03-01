@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Component, ErrorInfo, ReactNode } from 'react';
 import { Search, Book, FileText, Users, HelpCircle, Sparkles, BookOpen, Clock, TrendingUp, Send, Bot, User } from 'lucide-react';
 import { useChat } from './hooks/useChat';
 
@@ -43,6 +43,17 @@ function LibbyChatbotInner() {
   const [books, setBooks] = useState([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { messages, isLoading, sendMessage, showStarterPrompts, clearChat } = useChat();
+
+  // Memoize particle positions so they don't recalculate on re-render
+  const particles = useMemo(() =>
+    [...Array(30)].map((_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      top: Math.random() * 100,
+      duration: 5 + Math.random() * 10,
+      delay: Math.random() * 5,
+    })), []
+  );
 
   // Generate flying books
   useEffect(() => {
@@ -114,15 +125,15 @@ function LibbyChatbotInner() {
 
       {/* Animated particles - White */}
       <div className="absolute inset-0 overflow-hidden opacity-10">
-        {[...Array(30)].map((_, i) => (
+        {particles.map((p) => (
           <div
-            key={i}
+            key={p.id}
             className="absolute w-2 h-2 bg-white rounded-full"
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animation: `particle ${5 + Math.random() * 10}s linear infinite`,
-              animationDelay: `${Math.random() * 5}s`
+              left: `${p.left}%`,
+              top: `${p.top}%`,
+              animation: `particle ${p.duration}s linear infinite`,
+              animationDelay: `${p.delay}s`
             }}
           ></div>
         ))}
@@ -266,10 +277,10 @@ function LibbyChatbotInner() {
 
                       {/* Message Bubble */}
                       <div className={`px-4 py-3 rounded-2xl ${message.user === 'user'
-                          ? 'bg-blue-600 text-white rounded-br-md'
-                          : message.isError
-                            ? 'bg-red-500/20 text-red-200 border border-red-500/30 rounded-bl-md'
-                            : 'bg-white/10 text-white border border-white/20 rounded-bl-md'
+                        ? 'bg-blue-600 text-white rounded-br-md'
+                        : message.isError
+                          ? 'bg-red-500/20 text-red-200 border border-red-500/30 rounded-bl-md'
+                          : 'bg-white/10 text-white border border-white/20 rounded-bl-md'
                         }`}>
                         <p className="leading-relaxed whitespace-pre-wrap">
                           {message.text}
@@ -364,7 +375,7 @@ function LibbyChatbotInner() {
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-6 left-0 right-0 text-center z-10">
+      <div className="absolute bottom-6 left-0 right-0 text-center z-10 pointer-events-none">
         <div className="inline-flex items-center gap-3 px-6 py-3 bg-white/5 backdrop-blur-xl rounded-full border border-white/10">
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50"></div>
           <span className="text-gray-300 text-sm font-medium">RAG Vector Database Connected</span>

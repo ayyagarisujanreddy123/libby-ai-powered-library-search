@@ -9,9 +9,6 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
       strictPort: false,
-      hmr: {
-        clientPort: 3000,
-      },
       cors: true,
       proxy: {
         // Proxy Pinecone API requests to bypass CORS
@@ -38,7 +35,6 @@ export default defineConfig(({ mode }) => {
       }
     },
     optimizeDeps: {
-      include: ['@pinecone-database/pinecone'],
       esbuildOptions: {
         define: {
           global: 'globalThis',
