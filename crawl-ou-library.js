@@ -432,6 +432,7 @@ async function main() {
                 metadata: {
                     text: chunk.text.substring(0, 30000), // Pinecone metadata limit
                     source: chunk.title,
+                    sourceType: 'web',  // Tag as web-crawled data
                     url: chunk.url,
                     page: chunk.chunkIndex + 1,
                     totalChunks: chunk.totalChunks,

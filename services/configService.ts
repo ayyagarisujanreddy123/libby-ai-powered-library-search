@@ -82,9 +82,9 @@ class ConfigService {
    * Check if Pinecone is configured
    */
   public isPineconeConfigured(): boolean {
-    return this.pineconeConfig !== null && 
-           !!this.pineconeConfig.apiKey && 
-           !!this.pineconeConfig.environment;
+    return this.pineconeConfig !== null &&
+      !!this.pineconeConfig.apiKey &&
+      !!this.pineconeConfig.environment;
   }
 
   /**
@@ -106,7 +106,7 @@ class ConfigService {
     const openai = this.isOpenAIConfigured();
     const pinecone = this.isPineconeConfigured();
     const fullyConfigured = this.isFullyConfigured();
-    
+
     const missingConfigs: string[] = [];
     if (!openai) {
       missingConfigs.push('OpenAI API key');

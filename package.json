@@ -8,17 +8,20 @@
     "build": "vite build",
     "preview": "vite preview",
     "test-pinecone": "node test-pinecone.js",
-    "crawl": "node crawl-ou-library.js"
+    "crawl": "node crawl-ou-library.js",
+    "index-docs": "node index-documents.js"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
     "@google/genai": "0.14.0",
+    "@pinecone-database/pinecone": "^2.0.1",
+    "dotenv": "^16.3.1",
     "framer-motion": "11.3.8",
     "lucide-react": "0.417.0",
     "openai": "^4.28.0",
-    "@pinecone-database/pinecone": "^2.0.1",
-    "dotenv": "^16.3.1"
+    "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^5.5.207",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -4,7 +4,7 @@
 
 # Libby — AI-Powered Library Search
 
-**Libby** is an AI-powered chatbot designed for **OU Libraries staff, Student Library Assistants (SLAs), and library leads**. It uses Retrieval-Augmented Generation (RAG) to answer employee questions about library procedures, policies, services, and locations by searching through indexed content from the [OU Libraries website](https://libraries.ou.edu).
+**Libby** is an AI-powered chatbot designed exclusively for **OU Libraries employees — Student Library Assistants (SLAs), library leads, and staff**. It uses Retrieval-Augmented Generation (RAG) to answer employee questions about library procedures, policies, services, and locations by searching through **two knowledge sources**: internal procedure documents (SLA Handbook, Bizzell Lead Handbook, etc.) and indexed content from the [OU Libraries website](https://libraries.ou.edu). Document data is prioritized over web data for accuracy.
 
 ## Table of Contents
 
@@ -14,6 +14,7 @@
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
+- [Document Indexer](#document-indexer)
 - [Web Crawler](#web-crawler)
 - [Testing](#testing)
 - [Scripts Reference](#scripts-reference)
@@ -36,9 +37,9 @@ Instead of searching through multiple web pages or policy documents, staff can a
 ### Key Features
 
 - 🤖 **RAG-Powered Responses** — Combines vector search (Pinecone) with LLM generation (OpenAI) for accurate, grounded answers
-- 👥 **Staff-Oriented** — Answers are framed for employees helping patrons, not for patrons directly
-- 📚 **248 Indexed Pages** — Comprehensive coverage of the OU Libraries website (services, policies, locations, collections)
-- 📄 **Source Citations** — Every answer includes clickable source references so staff can verify information
+- 👥 **Employee-Focused** — Every response is framed as staff instructions ("Here's what you need to do:", "Tell the patron...")
+- 📄 **Dual-Source Knowledge** — 38 document vectors (SLA Handbook, Lead Handbook, procedure PDFs) + 248 web-crawled vectors, with documents prioritized
+- 📑 **Source Citations** — Every answer includes clickable source references with document name and page number
 - 🎨 **Modern UI** — Dark-themed interface with animated backgrounds, smooth streaming responses, and starter prompts
 - 🌐 **Cross-Browser** — Works in Chrome, Safari, Firefox, and on mobile devices via network URL
 - ⚡ **Real-Time Streaming** — Responses stream in token-by-token for a responsive feel
@@ -67,9 +68,9 @@ Instead of searching through multiple web pages or policy documents, staff can a
      │   Pinecone DB    │   │    OpenAI API     │
      │  (Vector Search) │   │ (Embeddings + LLM)│
      │                  │   │                   │
-     │  248 vectors     │   │ text-embedding-   │
-     │  1536 dimensions │   │   3-small         │
-     │  libby-chat-bot  │   │ gpt-3.5-turbo     │
+     │  286 vectors     │   │ text-embedding-   │
+     │  (38 doc + 248   │   │   3-small         │
+     │   web) 1536-dim  │   │ gpt-3.5-turbo     │
      └──────────────────┘   └──────────────────┘
 ```
 
@@ -77,9 +78,9 @@ Instead of searching through multiple web pages or policy documents, staff can a
 
 1. **User asks a question** in the chat interface
 2. **Embedding generation** — The query is converted to a 1536-dimensional vector using OpenAI's `text-embedding-3-small` model
-3. **Vector search** — The embedding is sent to Pinecone to find the top 5 most semantically similar document chunks
-4. **Context assembly** — Retrieved chunks (with source metadata) are assembled into a context prompt
-5. **LLM generation** — OpenAI's `gpt-3.5-turbo` generates a staff-oriented response using the system prompt and retrieved context
+3. **Vector search** — The embedding is sent to Pinecone to find the top 5 most semantically similar chunks from both documents and web data
+4. **Context assembly** — Retrieved chunks are labeled as `[DOCUMENT]` or `[WEBSITE]` and assembled into a context prompt, with documents prioritized
+5. **LLM generation** — OpenAI's `gpt-3.5-turbo` generates an employee-focused response using the system prompt and retrieved context
 6. **Streaming response** — The answer streams back to the UI token-by-token with source citations displayed below
 
 ---
@@ -96,6 +97,7 @@ Instead of searching through multiple web pages or policy documents, staff can a
 | **LLM** | OpenAI `gpt-3.5-turbo` | Generate natural language responses |
 | **Vector DB** | Pinecone (Serverless) | Store and search document embeddings |
 | **Web Crawler** | Node.js (built-in `fetch`) | Crawl OU Libraries website and index content |
+| **Doc Indexer** | Node.js, pdfjs-dist | Extract text from local PDFs and index into Pinecone |
 
 ---
 
@@ -134,6 +136,7 @@ libby-—-ai-powered-library-search/
 │   └── icons/                 # Custom SVG icon components
 │
 ├── crawl-ou-library.js        # Web crawler script (sitemap → Pinecone)
+├── index-documents.js         # PDF document indexer (local PDFs → Pinecone)
 └── functional-test.js         # Automated functional test suite
 ```
 
@@ -162,10 +165,16 @@ npm install
 cp env.example .env
 # Edit .env with your API keys (see Environment Variables section below)
 
-# 4. Index the OU Libraries website into Pinecone
+# 4. Index local PDF documents into Pinecone (procedure docs, handbooks)
+npm run index-docs
+
+# 5. Index the OU Libraries website into Pinecone
 npm run crawl
 
-# 5. Start the development server
+# 6. Re-index documents (crawl clears the index, so re-add docs after)
+npm run index-docs
+
+# 7. Start the development server
 npm run dev
 ```
 
@@ -198,19 +207,53 @@ VITE_EMBEDDING_MODEL=text-embedding-3-small
 
 ---
 
+## Document Indexer
+
+The document indexer (`index-documents.js`) reads local PDF files (handbooks, procedure docs), extracts text using Mozilla's PDF.js, chunks it, and indexes it into Pinecone with `sourceType: "document"` metadata for priority retrieval.
+
+### Indexed Documents
+
+| Document | Description | Chunks |
+|----------|-------------|--------|
+| **SLA Handbook** | Complete SLA procedures, policies, responsibilities | 13 |
+| **Bizzell Student Lead Handbook 2026** | Student lead guidelines and expectations | 10 |
+| **LibCal Equipment Booking** | Equipment reservation procedures | 5 |
+| **Catches/Hold Procedures** | Alma-based hold catching workflow | 2 |
+| **Troubleshooting Expired Hold Shelf** | Expired hold resolution process | 2 |
+| **Troubleshooting Overdue Reserves Catch** | Overdue reserve handling | 2 |
+| **Emergency Contact Info** | Staff emergency contacts | 1 |
+| **Guidelines for Sooner Card Building Access** | Building access procedures | 1 |
+| **Inclement Weather Volunteer Team** | Weather-related shift procedures | 1 |
+| **Research Help Desk** | Research desk procedures | 1 |
+
+### Running the Document Indexer
+
+```bash
+npm run index-docs
+```
+
+By default, it reads PDFs from `/Users/sujanreddyayyagari/Desktop/Libby Data`. You can specify a custom path:
+
+```bash
+node index-documents.js /path/to/your/pdfs
+```
+
+**Expected output:** 10 PDFs → 38 document vectors upserted (~40 seconds)
+
+---
+
 ## Web Crawler
 
-The web crawler (`crawl-ou-library.js`) is a standalone Node.js script that populates the Pinecone vector database with content from the OU Libraries website.
+The web crawler (`crawl-ou-library.js`) populates Pinecone with content from the OU Libraries website, tagged with `sourceType: "web"`.
 
 ### What It Does
 
 1. **Fetches the sitemap** from `https://libraries.ou.edu/sitemap.xml` (~322 URLs)
 2. **Filters** out staff directory pages, search results, and admin pages → ~217 pages
 3. **Crawls each page** using `fetch`, extracting the `<main>` content area
-4. **Strips HTML** to clean text, removing navigation, scripts, and boilerplate
-5. **Chunks text** into ~800-token pieces with 100-token overlap for better retrieval
-6. **Generates embeddings** for each chunk using OpenAI's `text-embedding-3-small`
-7. **Upserts vectors** into Pinecone with metadata (source URL, page title, full text)
+4. **Chunks text** into ~800-token pieces with 100-token overlap
+5. **Generates embeddings** using OpenAI's `text-embedding-3-small`
+6. **Upserts vectors** with metadata including `sourceType: "web"`
 
 ### Running the Crawler
 
@@ -218,15 +261,9 @@ The web crawler (`crawl-ou-library.js`) is a standalone Node.js script that popu
 npm run crawl
 ```
 
-**Expected output:**
-- ~205 pages crawled
-- ~248 text chunks created
-- ~248 vectors upserted to Pinecone
-- Total time: ~3-4 minutes
+**Expected output:** ~205 pages → ~248 vectors (~3-4 minutes)
 
-### Re-Indexing
-
-Run `npm run crawl` again whenever the OU Libraries website is updated. The script clears the existing index before re-indexing to avoid stale data.
+> ⚠️ **Important:** The crawler clears the entire Pinecone index before re-indexing. After running `npm run crawl`, you **must** re-run `npm run index-docs` to restore the document vectors.
 
 ---
 
@@ -267,6 +304,7 @@ Each test checks:
 | **Dev Server** | `npm run dev` | Start Vite dev server on port 3000 |
 | **Build** | `npm run build` | Create production build in `dist/` |
 | **Preview** | `npm run preview` | Preview production build locally |
+| **Index Docs** | `npm run index-docs` | Index local PDF documents into Pinecone (priority source) |
 | **Crawl** | `npm run crawl` | Crawl OU Libraries website and index into Pinecone |
 | **Test Pinecone** | `npm run test-pinecone` | Test Pinecone connection and query |
 
@@ -276,21 +314,37 @@ Each test checks:
 
 ### System Prompt
 
-Libby uses a carefully crafted system prompt that establishes its role as a **staff assistant**:
+Libby uses a carefully crafted system prompt that establishes its role as an **employee assistant** with strict knowledge grounding:
 
 ```
-You are Libby, an AI assistant built for OU Libraries staff, Student Library 
-Assistants (SLAs), and library leads.
+You are Libby, an AI assistant built exclusively for OU Libraries employees.
 
-AUDIENCE: Your users are library EMPLOYEES — not patrons. They ask you 
-questions so they can better assist patrons or understand internal 
-procedures and policies.
+CRITICAL FRAMING:
+- Every person asking you a question is a LIBRARY EMPLOYEE on duty
+- Frame EVERY answer as instructions for the EMPLOYEE
+- Always address the user as a fellow staff member
 
-YOUR ROLE:
-- Answer from the perspective of HELPING STAFF do their job
-- Explain what the employee should DO or TELL the patron
-- Use language like "You should tell the patron...", "The procedure is..."
+EMPLOYEE-FOCUSED LANGUAGE (MANDATORY):
+- Start responses with: "Here's what you need to do:", "Follow these steps:"
+- When involving patrons: "Tell the patron...", "Direct them to..."
+- NEVER use patron-facing language like "you can visit" or "bring your ID"
+
+KNOWLEDGE BOUNDARIES:
+- Answer ONLY using retrieved documents
+- PRIORITY: [DOCUMENT] sources over [WEBSITE] sources
+- If not in documents: "I don't have that info. Check with your supervisor."
 ```
+
+### Data Source Priority
+
+Libby uses two types of indexed data, with internal documents taking priority:
+
+| Source Type | Tag | Priority | Content |
+|-------------|-----|----------|---------|
+| **Internal Documents** | `[DOCUMENT]` | ⬆️ High | SLA Handbook, Lead Handbook, procedure PDFs |
+| **Website Content** | `[WEBSITE]` | Standard | OU Libraries website (services, policies, locations) |
+
+When both sources cover the same topic, the document version is preferred as it contains official internal procedures.
 
 ### Pinecone Proxy
 
@@ -309,10 +363,12 @@ Each vector in Pinecone stores the following metadata:
 | Field | Description | Example |
 |-------|-------------|---------|
 | `text` | Full text chunk content | "Technology Lending: Laptops are available..." |
-| `source` | Page title | "Technology Lending" |
-| `url` | Source page URL | "https://libraries.ou.edu/find-borrow-request/technology-lending" |
-| `page` | Chunk number within the page | 1 |
-| `totalChunks` | Total chunks for this page | 2 |
+| `source` | Document name or page title | "SLA handbook" or "Technology Lending" |
+| `sourceType` | Data origin | `"document"` or `"web"` |
+| `url` | Source page URL (web only) | "https://libraries.ou.edu/..." |
+| `fileName` | PDF file name (docs only) | "SLA handbook.pdf" |
+| `page` | Chunk number | 1 |
+| `totalChunks` | Total chunks for this source | 13 |
 
 ---
 

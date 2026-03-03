@@ -54,6 +54,16 @@ export interface VectorMetadata {
   page?: number;
   url?: string;
   timestamp?: string;
+  // Alternate field names for compatibility with different indexing schemes
+  content?: string;
+  document?: string;
+  chunk?: string;
+  file?: string;
+  pageNumber?: number;
+  link?: string;
+  totalChunks?: number;
+  sourceType?: 'document' | 'web';
+  fileName?: string;
 }
 
 export interface VectorSearchResult {
