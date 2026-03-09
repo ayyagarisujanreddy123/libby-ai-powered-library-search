@@ -374,13 +374,7 @@ function LibbyChatbotInner() {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="absolute bottom-6 left-0 right-0 text-center z-10 pointer-events-none">
-        <div className="inline-flex items-center gap-3 px-6 py-3 bg-white/5 backdrop-blur-xl rounded-full border border-white/10">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50"></div>
-          <span className="text-gray-300 text-sm font-medium">RAG Vector Database Connected</span>
-        </div>
-      </div>
+
 
       <style>{`
         @keyframes fadeIn {

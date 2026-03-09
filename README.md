@@ -17,6 +17,9 @@
 - [Scripts Reference](#scripts-reference)
 - [How It Works](#how-it-works)
 - [Troubleshooting](#troubleshooting)
+- [Re-Indexing Workflow](#re-indexing-workflow)
+- [Future Roadmap](#future-roadmap)
+- [Contributing](#contributing)
 
 ---
 
@@ -373,13 +376,15 @@ Each vector in Pinecone stores the following metadata:
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| **Chatbot not responding** | Check browser console for API errors. Verify `.env` has valid API keys. |
-| **All answers reference the same page** | Run `npm run crawl` to re-index. Check `node diagnose-pinecone.js` for vector count. |
-| **CORS errors in browser** | Ensure Vite dev server is running (not production build). The proxy only works in dev mode. |
-| **Network URL not working** | Ensure both devices are on the same network. Check macOS Firewall settings. |
-| **Background shaking during responses** | This was fixed by memoizing particle positions. Pull the latest code. |
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| **Chatbot not responding** | API keys missing or invalid | Check browser console for errors. Verify `.env` has valid `VITE_OPENAI_API_KEY` and `VITE_PINECONE_API_KEY`. |
+| **Answers don't reference internal documents** | Document vectors not indexed | Run `npm run index-docs` and verify the output shows 38 vectors upserted. |
+| **All answers reference the same page** | Stale or corrupted index | Run `npm run crawl` followed by `npm run index-docs` to fully re-index. |
+| **CORS errors in browser console** | Direct Pinecone API calls blocked | Ensure Vite dev server is running (`npm run dev`). The Pinecone proxy only works in dev mode, not production builds. |
+| **Network URL not accessible** | Firewall or network mismatch | Ensure both devices are on the same Wi-Fi network. Check macOS **System Settings → Firewall** and allow Node.js connections. |
+| **PDF indexer fails on a specific file** | Corrupted or scanned-image PDF | `pdfjs-dist` can only extract text-based PDFs. Scanned image PDFs need OCR preprocessing first. |
+| **"TT: undefined function" warnings** | Font parsing warnings from PDF.js | These are harmless — text extraction still works. The warnings come from complex font tables in the PDF. |
 
 ### Verifying the Pinecone Index
 
@@ -387,14 +392,75 @@ Each vector in Pinecone stores the following metadata:
 node test-pinecone.js
 ```
 
-This will show the number of vectors in the index and run a sample query.
+This connects to Pinecone, shows the total vector count, and runs a sample similarity search to confirm everything is working.
+
+---
+
+## Re-Indexing Workflow
+
+When you need to update the knowledge base (e.g., new procedure docs or website changes), follow this order:
+
+```bash
+# Step 1: Re-crawl the website (⚠️ this clears the entire Pinecone index)
+npm run crawl
+
+# Step 2: Re-index PDF documents (restores document vectors after crawl clears them)
+npm run index-docs
+
+# Step 3: Verify the index has both sources
+node test-pinecone.js
+# Expected: ~286 vectors (248 web + 38 document)
+```
+
+> **To add new PDF documents:** Place the new PDF files in the `Libby Data` folder and re-run `npm run index-docs`. New documents will be added alongside existing ones without affecting web vectors (unless you also re-crawl).
+
+---
+
+## Future Roadmap
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Server-Side API Keys** | Move OpenAI and Pinecone keys behind a backend server for production security | 🔜 Planned |
+| **Conversation History** | Persist chat history across sessions using local storage or a database | 🔜 Planned |
+| **Admin Dashboard** | UI for managing indexed documents, viewing vector stats, and triggering re-indexing | 💡 Idea |
+| **Multi-Format Support** | Extend indexer to support `.docx`, `.txt`, and `.xlsx` files | 💡 Idea |
+| **Feedback Loop** | Allow staff to rate answers and flag incorrect responses for continuous improvement | 💡 Idea |
+| **OCR for Scanned PDFs** | Add Tesseract.js integration for indexing scanned/image-based PDF documents | 💡 Idea |
+
+---
+
+## Contributing
+
+1. **Fork** the repository
+2. **Create a feature branch:** `git checkout -b feature/your-feature`
+3. **Make your changes** and test locally with `npm run dev`
+4. **Commit:** `git commit -m "feat: description of your change"`
+5. **Push:** `git push origin feature/your-feature`
+6. **Open a Pull Request** against `main`
+
+### Commit Message Convention
+
+| Prefix | Use For |
+|--------|---------|
+| `feat:` | New features or functionality |
+| `fix:` | Bug fixes |
+| `ui:` | UI/UX changes |
+| `docs:` | Documentation updates |
+| `refactor:` | Code restructuring without behavior change |
 
 ---
 
 ## License
 
-This project was built for the University of Oklahoma Libraries.
+This project was built for the **University of Oklahoma Libraries**. All internal procedure documents referenced by this application are property of OU Libraries and are not included in this repository.
+
+## Acknowledgments
+
+- **OU Libraries** — For providing the internal documents and domain expertise
+- **OpenAI** — GPT-3.5-turbo for response generation and text-embedding-3-small for vector embeddings
+- **Pinecone** — Serverless vector database for semantic search
+- **Mozilla PDF.js** (`pdfjs-dist`) — PDF text extraction engine
 
 ## Authors
 
-- **Sujan Reddy Ayyagari** — Developer
+- **Sujan Reddy Ayyagari** — Developer & Maintainer
