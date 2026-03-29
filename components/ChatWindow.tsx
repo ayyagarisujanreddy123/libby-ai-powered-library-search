@@ -1,6 +1,5 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Message from './Message';
-import ChatInput from './ChatInput';
 import TypingIndicator from './TypingIndicator';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Message as MessageType } from '../types';
@@ -8,61 +7,79 @@ import type { Message as MessageType } from '../types';
 interface ChatWindowProps {
   messages: MessageType[];
   isLoading: boolean;
-  sendMessage: (message: string) => void;
-  showStarterPrompts: boolean;
 }
 
-const starterPrompts = [
-  "What's the procedure for a fire alarm?",
-  "How do I handle a lost book report?",
-  "Tell me about the computer use policy.",
-];
-
-const StarterPrompts: React.FC<{ onSend: (prompt: string) => void }> = ({ onSend }) => (
-  <div className="flex flex-col items-center gap-3 mb-4 px-6">
-    <p className="text-sm text-gray-400">Or try one of these prompts:</p>
-    <div className="flex flex-wrap justify-center gap-2">
-      {starterPrompts.map((prompt, i) => (
-        <motion.button
-          key={i}
-          onClick={() => onSend(prompt)}
-          className="bg-gray-800 text-gray-200 text-sm px-4 py-2 rounded-full hover:bg-gray-700 transition-colors border border-gray-700"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 + i * 0.1 }}
-          whileHover={{ y: -2 }}
-        >
-          {prompt}
-        </motion.button>
-      ))}
-    </div>
-  </div>
-);
-
-
-const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading, sendMessage, showStarterPrompts }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
     }
-  }, [messages, messages[messages.length-1]?.text]);
+  }, []);
+
+  // Auto-scroll when new messages arrive or text streams in
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (isNearBottom) {
+      scrollToBottom();
+    }
+  }, [messages, messages[messages.length - 1]?.text, scrollToBottom]);
+
+  // Track scroll position to show/hide the scroll-to-bottom button
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowScrollBtn(distFromBottom > 200);
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-gray-900">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+    <div className="relative flex-1 overflow-hidden">
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto p-6 space-y-6"
+        role="log"
+        aria-live="polite"
+        aria-label="Chat messages"
+      >
         <AnimatePresence initial={false}>
           {messages.map((msg) => (
             <Message key={msg.id} message={msg} />
           ))}
         </AnimatePresence>
         {isLoading && <TypingIndicator />}
-         {showStarterPrompts && !isLoading && <StarterPrompts onSend={sendMessage} />}
       </div>
-      <div className="p-4 border-t border-gray-700">
-        <ChatInput onSend={sendMessage} disabled={isLoading} />
-      </div>
+
+      {/* Scroll-to-bottom button */}
+      <AnimatePresence>
+        {showScrollBtn && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            onClick={scrollToBottom}
+            className="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-gray-700 hover:bg-gray-600 text-white shadow-lg flex items-center justify-center transition-colors z-10 border border-gray-600"
+            aria-label="Scroll to latest message"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

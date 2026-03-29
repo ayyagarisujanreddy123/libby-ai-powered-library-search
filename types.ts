@@ -18,6 +18,7 @@ export interface Message {
   sources?: Source[];
   isStreaming?: boolean;
   isError?: boolean;
+  timestamp?: number;
 }
 
 // OpenAI Types

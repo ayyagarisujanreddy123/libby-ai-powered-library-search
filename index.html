@@ -3,151 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>Libby — AI-Powered Library Search</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-    tailwind.config = {
-      darkMode: 'class',
-    }
-  </script>
-<style>
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes particle {
-    0% {
-      transform: translateY(0) translateX(0);
-      opacity: 0;
-    }
-    10% {
-      opacity: 1;
-    }
-    90% {
-      opacity: 1;
-    }
-    100% {
-      transform: translateY(-100vh) translateX(50px);
-      opacity: 0;
-    }
-  }
-
-  @keyframes spin3d {
-    0% {
-      transform: rotateY(0deg) rotateX(0deg) rotateZ(0deg);
-    }
-    100% {
-      transform: rotateY(360deg) rotateX(360deg) rotateZ(360deg);
-    }
-  }
-
-  @keyframes rotate {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @keyframes rotateReverse {
-    from {
-      transform: rotate(360deg);
-    }
-    to {
-      transform: rotate(0deg);
-    }
-  }
-
-  @keyframes segmentPulse {
-    0%, 100% {
-      opacity: 0.3;
-      transform: translate(-50%, -50%) rotate(var(--rotation)) translateY(-55px) scale(1);
-    }
-    50% {
-      opacity: 1;
-      transform: translate(-50%, -50%) rotate(var(--rotation)) translateY(-55px) scale(1.2);
-    }
-  }
-
-  @keyframes scan {
-    0% {
-      transform: translateY(-100%) rotate(0deg);
-    }
-    100% {
-      transform: translateY(100%) rotate(360deg);
-    }
-  }
-
-  @keyframes orbit {
-    0% {
-      transform: translate(-50%, -50%) rotate(0deg) translateX(30px);
-    }
-    100% {
-      transform: translate(-50%, -50%) rotate(360deg) translateX(30px);
-    }
-  }
-
-  @keyframes float {
-    0%, 100% {
-      transform: translateY(0) translateX(0);
-      opacity: 0.4;
-    }
-    50% {
-      transform: translateY(-10px) translateX(5px);
-      opacity: 1;
-    }
-  }
-
-  @keyframes slideIn {
-    from {
-      width: 0;
-      opacity: 0;
-    }
-    to {
-      width: 2rem;
-      opacity: 0.4;
-    }
-  }
-</style>
-<link rel="stylesheet" href="/index.css">
+      tailwind.config = { darkMode: 'class' };
+    </script>
+    <!-- All keyframes & global styles live in index.css (no duplicates here) -->
+    <link rel="stylesheet" href="/index.css">
   </head>
-  <body style="margin: 0; padding: 0; background: #111827; min-height: 100vh;">
+  <body style="margin: 0; padding: 0; background: #000; min-height: 100vh;">
     <div id="root" style="min-height: 100vh;">
-      <div style="color: white; padding: 20px; font-family: monospace;">
-        Loading Libby...
+      <!-- Branded loading state -->
+      <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px;">
+        <div style="width:48px;height:48px;border:3px solid rgba(255,255,255,0.15);border-top-color:#3b82f6;border-radius:50%;animation:rotate 0.8s linear infinite;"></div>
+        <span style="color:rgba(255,255,255,0.5);font-family:system-ui;font-size:14px;">Loading Libby...</span>
       </div>
     </div>
     <script>
-      // Polyfill for Node.js global and process variables in browser (Safari compatibility)
+      // Safari polyfills
       (function() {
-        if (typeof global === 'undefined') {
-          window.global = window.globalThis || window;
-        }
-        if (typeof process === 'undefined') {
-          window.process = { env: {} };
-        }
-        // Additional Safari compatibility fixes
+        if (typeof global === 'undefined') window.global = window.globalThis || window;
+        if (typeof process === 'undefined') window.process = { env: {} };
         if (!window.Promise.prototype.finally) {
-          // Polyfill for Promise.finally if needed (older Safari)
-          Promise.prototype.finally = function(callback) {
+          Promise.prototype.finally = function(cb) {
             return this.then(
-              value => Promise.resolve(callback()).then(() => value),
-              reason => Promise.resolve(callback()).then(() => { throw reason; })
+              function(v) { return Promise.resolve(cb()).then(function() { return v; }); },
+              function(r) { return Promise.resolve(cb()).then(function() { throw r; }); }
             );
           };
         }
-        console.log('HTML: Polyfills set, browser:', navigator.userAgent.includes('Safari') ? 'Safari' : 'Other');
-        console.log('HTML: Global polyfill set, loading index.tsx...');
       })();
     </script>
     <script type="module" src="/index.tsx"></script>

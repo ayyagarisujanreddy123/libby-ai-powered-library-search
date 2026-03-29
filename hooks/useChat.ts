@@ -1,35 +1,87 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Message } from '../types';
 import { UserType } from '../types';
 import { sendMessageToBot } from '../services/chatService';
+
+const STORAGE_KEY = 'libby-chat-history';
 
 const initialMessage: Message = {
   id: 'init-0',
   text: "Hello! I'm Libby, your AI assistant for library procedures. How can I help you find information in our internal documents today?",
   user: UserType.BOT,
+  timestamp: Date.now(),
 };
 
-export const useChat = () => {
-  const [messages, setMessages] = useState<Message[]>([initialMessage]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showStarterPrompts, setShowStarterPrompts] = useState(true);
+function loadMessages(): Message[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as Message[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {
+    // Corrupted storage — start fresh
+  }
+  return [initialMessage];
+}
 
-  const clearChat = () => {
-    setMessages([initialMessage]);
-    setShowStarterPrompts(true);
-  };
+function saveMessages(messages: Message[]) {
+  try {
+    // Only persist completed messages (not streaming)
+    const toSave = messages.filter((m) => !m.isStreaming);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch {
+    // Storage full or unavailable — silently fail
+  }
+}
+
+export const useChat = () => {
+  const [messages, setMessages] = useState<Message[]>(loadMessages);
+  const [isLoading, setIsLoading] = useState(false);
+  const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Derive showStarterPrompts from message state
+  const showStarterPrompts = messages.length <= 1 && messages[0]?.id === 'init-0';
+
+  // Persist messages when they change
+  useEffect(() => {
+    saveMessages(messages);
+  }, [messages]);
+
+  // Cleanup streaming interval on unmount
+  useEffect(() => {
+    return () => {
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const clearChat = useCallback(() => {
+    if (streamIntervalRef.current) {
+      clearInterval(streamIntervalRef.current);
+      streamIntervalRef.current = null;
+    }
+    const freshMessage = { ...initialMessage, timestamp: Date.now() };
+    setMessages([freshMessage]);
+    setIsLoading(false);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
-
-    if (showStarterPrompts) {
-      setShowStarterPrompts(false);
-    }
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       text,
       user: UserType.USER,
+      timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -38,48 +90,63 @@ export const useChat = () => {
     try {
       const botResponse = await sendMessageToBot(text);
 
-      // Handle error responses from the service gracefully and display them immediately
+      // Handle error responses immediately (no streaming)
       if (botResponse.isError) {
-        setMessages((prev) => [...prev, botResponse]);
+        setMessages((prev) => [
+          ...prev,
+          { ...botResponse, timestamp: Date.now() },
+        ]);
         return;
       }
 
+      const placeholderId = `bot-${Date.now()}`;
       const botMessagePlaceholder: Message = {
         ...botResponse,
-        id: `bot-${Date.now()}`,
-        text: '', 
+        id: placeholderId,
+        text: '',
         sources: [],
         isStreaming: true,
+        timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, botMessagePlaceholder]);
 
-      // Simulate streaming effect
-      let streamedText = '';
+      // Streaming text effect
+      let streamedLength = 0;
       const fullText = botResponse.text;
-      const interval = setInterval(() => {
+
+      streamIntervalRef.current = setInterval(() => {
         try {
-          streamedText = fullText.slice(0, streamedText.length + 1);
+          streamedLength += 1;
+          const streamedText = fullText.slice(0, streamedLength);
+
           setMessages((prev) =>
             prev.map((msg) =>
-              msg.id === botMessagePlaceholder.id ? { ...msg, text: streamedText } : msg
+              msg.id === placeholderId ? { ...msg, text: streamedText } : msg
             )
           );
 
-          if (streamedText.length === fullText.length) {
-            clearInterval(interval);
-            // Add sources after text is fully streamed and stop streaming indicator
+          if (streamedLength >= fullText.length) {
+            if (streamIntervalRef.current) {
+              clearInterval(streamIntervalRef.current);
+              streamIntervalRef.current = null;
+            }
+            // Reveal sources and stop streaming indicator
             setMessages((prev) =>
               prev.map((msg) =>
-                msg.id === botMessagePlaceholder.id ? { ...msg, sources: botResponse.sources, isStreaming: false } : msg
+                msg.id === placeholderId
+                  ? { ...msg, sources: botResponse.sources, isStreaming: false }
+                  : msg
               )
             );
           }
-        } catch (e) {
-          console.error("Error during response streaming simulation:", e);
-          clearInterval(interval);
+        } catch {
+          if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+          }
           setMessages((prev) =>
             prev.map((msg) =>
-              msg.id === botMessagePlaceholder.id
+              msg.id === placeholderId
                 ? {
                     ...msg,
                     text: 'An error occurred while displaying the response. Please try again.',
@@ -90,21 +157,20 @@ export const useChat = () => {
             )
           );
         }
-      }, 20);
-
+      }, 15);
     } catch (error) {
-      console.error('Failed to get response from bot:', error);
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         text: 'Oops! Something went wrong on my end. Please try again in a moment.',
         user: UserType.BOT,
         isError: true,
+        timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
-  }, [showStarterPrompts]);
+  }, []);
 
   return { messages, isLoading, sendMessage, showStarterPrompts, clearChat };
 };

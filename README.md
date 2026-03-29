@@ -39,10 +39,16 @@ Instead of searching through multiple web pages or policy documents, staff can a
 - 🤖 **RAG-Powered Responses** — Combines vector search (Pinecone) with LLM generation (OpenAI) for accurate, grounded answers
 - 👥 **Employee-Focused** — Every response is framed as staff instructions ("Here's what you need to do:", "Tell the patron...")
 - 📄 **Dual-Source Knowledge** — 38 document vectors (SLA Handbook, Lead Handbook, procedure PDFs) + 248 web-crawled vectors, with documents prioritized
-- 📑 **Source Citations** — Every answer includes clickable source references with document name and page number
-- 🎨 **Modern UI** — Dark-themed interface with animated backgrounds, smooth streaming responses, and starter prompts
+- 📑 **Source Citations** — Every answer includes source pills with document name and page number; pills with URLs link directly to the source
+- 💾 **Chat Persistence** — Conversations are saved to localStorage and survive page refreshes
+- 🕐 **Message Timestamps** — Every message displays a relative timestamp (e.g. "2:34 PM" or "Mar 28, 2:34 PM")
+- 📝 **Markdown Rendering** — Bot responses render **bold**, `inline code`, and numbered lists with styled formatting
+- 📋 **Copy to Clipboard** — Hover any bot message to copy it with one click, with checkmark confirmation
+- 🎨 **Modern UI** — Dark-themed interface with JARVIS-style animated logo, floating 3D books, particle effects, and Framer Motion transitions
 - 🌐 **Cross-Browser** — Works in Chrome, Safari, Firefox, and on mobile devices via network URL
-- ⚡ **Real-Time Streaming** — Responses stream in token-by-token for a responsive feel
+- ⚡ **Real-Time Streaming** — Responses stream in character-by-character for a responsive feel
+- ♿ **Accessible** — ARIA labels, `aria-live` region for screen readers, focus management, keyboard navigation, and visible focus indicators
+- 📱 **Responsive** — Auto-resizing textarea input, scroll-to-bottom button for long conversations, and iOS safe area support
 
 ---
 
@@ -81,7 +87,7 @@ Instead of searching through multiple web pages or policy documents, staff can a
 3. **Vector search** — The embedding is sent to Pinecone to find the top 5 most semantically similar chunks from both documents and web data
 4. **Context assembly** — Retrieved chunks are labeled as `[DOCUMENT]` or `[WEBSITE]` and assembled into a context prompt, with documents prioritized
 5. **LLM generation** — OpenAI's `gpt-3.5-turbo` generates an employee-focused response using the system prompt and retrieved context
-6. **Streaming response** — The answer streams back to the UI token-by-token with source citations displayed below
+6. **Streaming response** — The answer streams back to the UI character-by-character with source citations displayed below, then persisted to localStorage
 
 ---
 
@@ -91,7 +97,8 @@ Instead of searching through multiple web pages or policy documents, staff can a
 |-------|-----------|---------|
 | **Frontend** | React 18, TypeScript | UI components, state management |
 | **Styling** | Tailwind CSS, Lucide Icons | Modern dark theme, iconography |
-| **Animation** | Framer Motion, CSS Keyframes | Background particles, floating books, transitions |
+| **Animation** | Framer Motion, CSS Keyframes | JARVIS logo, background particles, floating books, message transitions |
+| **Persistence** | localStorage | Chat history preserved across page refreshes |
 | **Build Tool** | Vite 6 | Dev server, HMR, API proxy, production builds |
 | **Embeddings** | OpenAI `text-embedding-3-small` | Convert text → 1536-dim vectors |
 | **LLM** | OpenAI `gpt-3.5-turbo` | Generate natural language responses |
@@ -105,18 +112,18 @@ Instead of searching through multiple web pages or policy documents, staff can a
 
 ```
 libby-—-ai-powered-library-search/
-├── App.tsx                    # Main application component (UI, layout, chat)
-├── index.tsx                  # React entry point with error boundary
-├── index.html                 # HTML template
-├── index.css                  # Global styles (Tailwind + custom)
-├── types.ts                   # TypeScript type definitions
+├── App.tsx                    # Main app: composes components, JARVIS logo, background animations, About modal
+├── index.tsx                  # React entry point (async App load)
+├── index.html                 # HTML template with Safari polyfills and branded loading spinner
+├── index.css                  # Single source of truth for global styles & all keyframe animations
+├── types.ts                   # TypeScript type definitions (Message, Source, RAG types)
 ├── vite.config.ts             # Vite config (proxy, build settings)
 ├── package.json               # Dependencies and scripts
 ├── .env                       # API keys and configuration (not committed)
 ├── env.example                # Template for .env
 │
 ├── hooks/
-│   └── useChat.ts             # React hook for chat state & message handling
+│   └── useChat.ts             # Chat state, streaming, localStorage persistence, timestamps
 │
 ├── services/
 │   ├── chatService.ts         # System prompt + RAG orchestration
@@ -126,14 +133,14 @@ libby-—-ai-powered-library-search/
 │   └── configService.ts       # Environment variable management
 │
 ├── components/
-│   ├── ChatWindow.tsx         # Message list container
-│   ├── ChatInput.tsx          # Text input + send button
-│   ├── Message.tsx            # Individual message bubble
-│   ├── SourcePill.tsx         # Clickable source citation pill
-│   ├── TypingIndicator.tsx    # Animated typing dots
-│   ├── Header.tsx             # App header with logo
-│   ├── AboutModal.tsx         # About dialog
-│   └── icons/                 # Custom SVG icon components
+│   ├── ChatWindow.tsx         # Scrollable message list with auto-scroll, scroll-to-bottom button, aria-live region
+│   ├── ChatInput.tsx          # Auto-resizing textarea, auto-focus, Shift+Enter for newlines
+│   ├── Message.tsx            # Message bubble with markdown rendering, timestamps, copy-to-clipboard
+│   ├── SourcePill.tsx         # Source citation pill (clickable link when URL available)
+│   ├── TypingIndicator.tsx    # Framer Motion animated typing dots
+│   ├── Header.tsx             # Standalone header component (available for alternate layouts)
+│   ├── AboutModal.tsx         # About Libby modal dialog with backdrop blur
+│   └── icons/                 # Custom SVG icon components (Bot, User, Send, Copy, Check, etc.)
 │
 ├── crawl-ou-library.js        # Web crawler script (sitemap → Pinecone)
 ├── index-documents.js         # PDF document indexer (local PDFs → Pinecone)
@@ -420,8 +427,16 @@ node test-pinecone.js
 
 | Feature | Description | Status |
 |---------|-------------|--------|
+| **Conversation History** | Persist chat history across sessions using localStorage | ✅ Done |
+| **Message Timestamps** | Display relative timestamps on every message | ✅ Done |
+| **Markdown Rendering** | Render bold, code, and numbered lists in bot responses | ✅ Done |
+| **Copy to Clipboard** | One-click copy on bot messages with confirmation feedback | ✅ Done |
+| **Scroll-to-Bottom** | Floating button to jump to the latest message in long conversations | ✅ Done |
+| **Clickable Source Pills** | Source citations link directly to the source URL when available | ✅ Done |
+| **Accessibility** | ARIA labels, live regions, focus management, screen reader support | ✅ Done |
+| **Multi-Line Input** | Auto-resizing textarea with Shift+Enter for newlines | ✅ Done |
 | **Server-Side API Keys** | Move OpenAI and Pinecone keys behind a backend server for production security | 🔜 Planned |
-| **Conversation History** | Persist chat history across sessions using local storage or a database | 🔜 Planned |
+| **Tailwind Build Integration** | Replace Tailwind CDN with PostCSS/Vite build-time compilation for smaller bundles | 🔜 Planned |
 | **Admin Dashboard** | UI for managing indexed documents, viewing vector stats, and triggering re-indexing | 💡 Idea |
 | **Multi-Format Support** | Extend indexer to support `.docx`, `.txt`, and `.xlsx` files | 💡 Idea |
 | **Feedback Loop** | Allow staff to rate answers and flag incorrect responses for continuous improvement | 💡 Idea |
