@@ -1,6 +1,31 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+
+// Dev-only plugin: mount api/chat.ts as middleware so `npm run dev` exposes /api/chat
+// In production, Vercel serves the same file as a serverless function.
+function apiDevPlugin(env: Record<string, string>): Plugin {
+  return {
+    name: 'libby-api-dev',
+    configureServer(server) {
+      // Mirror env vars into process.env for the serverless handler during dev
+      for (const [k, v] of Object.entries(env)) {
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+      server.middlewares.use('/api/chat', async (req, res) => {
+        try {
+          const mod = await server.ssrLoadModule('/api/chat.ts');
+          await mod.default(req, res);
+        } catch (err: any) {
+          console.error('Dev /api/chat error:', err);
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err?.message || 'Dev handler error' }));
+        }
+      });
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -10,29 +35,15 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       strictPort: false,
       cors: true,
-      proxy: {
-        // Proxy Pinecone API requests to bypass CORS
-        '/api/pinecone': {
-          target: env.VITE_PINECONE_HOST || 'https://libby-chat-bot-ikxfznp.svc.aped-4627-b74a.pinecone.io',
-          changeOrigin: true,
-          rewrite: (path: string) => path.replace(/^\/api\/pinecone/, ''),
-          headers: {
-            'Api-Key': env.VITE_PINECONE_API_KEY || '',
-          },
-        },
-      },
     },
-    plugins: [react()],
+    plugins: [react(), apiDevPlugin(env)],
     define: {
-      // Polyfill for Node.js global variable in browser
       global: 'globalThis',
-      // OpenAI API key is accessed via import.meta.env.VITE_OPENAI_API_KEY
-      // No need for process.env definitions as Vite handles VITE_ prefixed vars automatically
     },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './'),
-      }
+      },
     },
     optimizeDeps: {
       esbuildOptions: {
@@ -46,11 +57,10 @@ export default defineConfig(({ mode }) => {
         include: [/node_modules/],
         transformMixedEsModules: true,
       },
-      target: 'es2015', // Better Safari compatibility
+      target: 'es2015',
     },
-    // Additional Safari compatibility
     esbuild: {
       target: 'es2015',
-    }
+    },
   };
 });
