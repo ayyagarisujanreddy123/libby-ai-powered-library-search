@@ -1,7 +1,9 @@
 
 # Libby — AI-Powered Library Search
 
-**Libby** is an AI-powered chatbot designed exclusively for **OU Libraries employees — Student Library Assistants (SLAs), library leads, and staff**. It uses Retrieval-Augmented Generation (RAG) to answer employee questions about library procedures, policies, services, and locations by searching through **two knowledge sources**: internal procedure documents (SLA Handbook, Bizzell Lead Handbook, etc.) and indexed content from the [OU Libraries website](https://libraries.ou.edu). Document data is prioritized over web data for accuracy.
+**Libby** is an AI chatbot built for **OU Libraries employees** — Student Library Assistants (SLAs), library leads, and staff. It uses Retrieval-Augmented Generation (RAG) to answer questions about procedures, policies, services, and locations by searching across **internal staff documents** (handbooks, troubleshooting guides, policies in PDF and DOCX) and **crawled OU Libraries website content**. Internal documents are prioritized over web content for accuracy.
+
+🚀 **Live demo:** [libby-ai-powered-library-search.vercel.app](https://libby-ai-powered-library-search.vercel.app)
 
 ## Table of Contents
 
@@ -13,11 +15,12 @@
 - [Environment Variables](#environment-variables)
 - [Document Indexer](#document-indexer)
 - [Web Crawler](#web-crawler)
+- [Conversational Behavior](#conversational-behavior)
 - [Testing](#testing)
 - [Scripts Reference](#scripts-reference)
-- [How It Works](#how-it-works)
-- [Troubleshooting](#troubleshooting)
 - [Re-Indexing Workflow](#re-indexing-workflow)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
 - [Future Roadmap](#future-roadmap)
 - [Contributing](#contributing)
 
@@ -27,67 +30,76 @@
 
 Libby helps library employees quickly find answers to common questions like:
 
-- *"A patron wants to check out a book, what do I do?"*
-- *"What is the technology lending policy?"*
-- *"Where should I direct a patron who needs a study room?"*
-- *"What are the borrowing privileges for alumni?"*
+- *"How do I mark a book as missing?"*
+- *"What's the procedure for an expired hold?"*
+- *"How do I get coverage for my shift if I'm sick?"*
+- *"What are the alumni borrowing privileges?"*
+- *"A patron returns a damaged reserve item — what do I do?"*
 
-Instead of searching through multiple web pages or policy documents, staff can ask Libby in natural language and get a concise, staff-oriented answer with source citations.
+Instead of digging through handbooks or website pages, staff ask Libby in natural language and get a concise, employee-framed answer with source citations.
 
 ### Key Features
 
-- 🤖 **RAG-Powered Responses** — Combines vector search (Pinecone) with LLM generation (OpenAI) for accurate, grounded answers
-- 👥 **Employee-Focused** — Every response is framed as staff instructions ("Here's what you need to do:", "Tell the patron...")
-- 📄 **Dual-Source Knowledge** — 38 document vectors (SLA Handbook, Lead Handbook, procedure PDFs) + 248 web-crawled vectors, with documents prioritized
-- 📑 **Source Citations** — Every answer includes source pills with document name and page number; pills with URLs link directly to the source
-- 💾 **Chat Persistence** — Conversations are saved to localStorage and survive page refreshes
-- 🕐 **Message Timestamps** — Every message displays a relative timestamp (e.g. "2:34 PM" or "Mar 28, 2:34 PM")
-- 📝 **Markdown Rendering** — Bot responses render **bold**, `inline code`, and numbered lists with styled formatting
-- 📋 **Copy to Clipboard** — Hover any bot message to copy it with one click, with checkmark confirmation
-- 🎨 **Modern UI** — Dark-themed interface with JARVIS-style animated logo, floating 3D books, particle effects, and Framer Motion transitions
-- 🌐 **Cross-Browser** — Works in Chrome, Safari, Firefox, and on mobile devices via network URL
-- ⚡ **Real-Time Streaming** — Responses stream in character-by-character for a responsive feel
-- ♿ **Accessible** — ARIA labels, `aria-live` region for screen readers, focus management, keyboard navigation, and visible focus indicators
-- 📱 **Responsive** — Auto-resizing textarea input, scroll-to-bottom button for long conversations, and iOS safe area support
+- 🤖 **RAG with gpt-4o** — Strong multi-document synthesis grounded in indexed sources
+- 👥 **Employee-Focused** — Frames answers as staff instructions ("Tell the patron…", "Direct them to…")
+- 📄 **Mixed Source Indexing** — Indexes both PDF and DOCX handbooks plus the crawled OU Libraries website
+- 💬 **Conversational Greetings** — Casual queries (`hi`, `thanks`, `how are you`, `wassup`, etc.) bypass RAG and get friendly canned replies
+- 🔗 **Factual Fallback** — Hours, contact, and location queries automatically point to canonical libraries.ou.edu URLs when the index lacks data
+- 📑 **Source Citations** — Each answer lists source pills with document name and page; web pills link to the live URL
+- 💾 **Chat Persistence** — Conversations saved to localStorage and survive page refreshes
+- 🕐 **Message Timestamps** — Relative timestamps on every message
+- 📝 **Markdown Rendering** — Bot responses render **bold**, `inline code`, sub-letter branches, and numbered lists
+- 📋 **Copy to Clipboard** — One-click copy on bot messages with checkmark feedback
+- 🎨 **Modern UI** — Dark JARVIS-themed interface with floating 3D books, particle effects, and Framer Motion transitions
+- ⚡ **Serverless Backend** — All RAG logic runs in `api/chat.ts` (Vercel Functions in prod, Vite middleware in dev) — keeps API keys off the client
+- ♿ **Accessible** — ARIA labels, live regions, keyboard navigation, focus indicators
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Browser (React App)                   │
-│                                                         │
-│  User Query → useChat Hook → chatService → ragService   │
-│                                                         │
-│  ragService orchestrates:                               │
-│    1. openaiService.generateEmbedding(query)            │
-│    2. pineconeService.searchVectors(embedding)           │
-│    3. openaiService.generateResponse(query + context)    │
-│                                                         │
-│  Pinecone calls go through Vite dev proxy (/api/pinecone)│
-│  to bypass CORS restrictions                            │
-└──────────────┬──────────────────────┬───────────────────┘
-               │                      │
-               ▼                      ▼
-     ┌──────────────────┐   ┌──────────────────┐
-     │   Pinecone DB    │   │    OpenAI API     │
-     │  (Vector Search) │   │ (Embeddings + LLM)│
-     │                  │   │                   │
-     │  286 vectors     │   │ text-embedding-   │
-     │  (38 doc + 248   │   │   3-small         │
-     │   web) 1536-dim  │   │ gpt-3.5-turbo     │
-     └──────────────────┘   └──────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    Browser (React App)                    │
+│                                                          │
+│   User Query → useChat → chatService → POST /api/chat    │
+└──────────────────────┬───────────────────────────────────┘
+                       │ JSON { message }
+                       ▼
+┌──────────────────────────────────────────────────────────┐
+│           api/chat.ts (Vercel Function / Vite middleware) │
+│                                                          │
+│   1. isCasualQuery? → return canned reply (no RAG)       │
+│   2. embed query (text-embedding-3-small, 1536-dim)      │
+│   3. Pinecone query (topK=8, two-tier scoring)           │
+│   4. Build [DOCUMENT]/[WEBSITE] context, doc-priority     │
+│   5. gpt-4o chat completion with strict system prompt    │
+│   6. factualFallback() catches hours/contact/location    │
+│      refusals → swap in canonical libraries.ou.edu URL   │
+│   7. Return { answer, sources }                          │
+└─────────────┬────────────────────────────┬───────────────┘
+              │                            │
+              ▼                            ▼
+   ┌──────────────────┐           ┌──────────────────┐
+   │   Pinecone DB    │           │    OpenAI API    │
+   │ (Vector Search)  │           │ Embeddings + LLM │
+   │                  │           │                  │
+   │  ~480 vectors    │           │ embedding-3-small│
+   │  282 web +       │           │ gpt-4o           │
+   │  198 doc/docx    │           │                  │
+   │  1536-dim cosine │           │                  │
+   └──────────────────┘           └──────────────────┘
 ```
 
-### RAG Pipeline Flow
+### RAG Pipeline
 
-1. **User asks a question** in the chat interface
-2. **Embedding generation** — The query is converted to a 1536-dimensional vector using OpenAI's `text-embedding-3-small` model
-3. **Vector search** — The embedding is sent to Pinecone to find the top 5 most semantically similar chunks from both documents and web data
-4. **Context assembly** — Retrieved chunks are labeled as `[DOCUMENT]` or `[WEBSITE]` and assembled into a context prompt, with documents prioritized
-5. **LLM generation** — OpenAI's `gpt-3.5-turbo` generates an employee-focused response using the system prompt and retrieved context
-6. **Streaming response** — The answer streams back to the UI character-by-character with source citations displayed below, then persisted to localStorage
+1. **Conversational gate** — Greetings, identity questions, thanks, and other casual inputs are detected by regex and answered directly without hitting the index.
+2. **Embedding** — Non-casual queries are embedded with OpenAI `text-embedding-3-small` (1536-dim).
+3. **Vector search** — Pinecone returns top 8 matches with cosine similarity. A two-tier filter prefers matches with score ≥ 0.4; falls back to ≥ 0.25 if no strong matches.
+4. **Context assembly** — Chunks are labeled `[DOCUMENT]` or `[WEBSITE]` with source name, joined with separators.
+5. **LLM generation** — gpt-4o is given the structured system prompt + context, with `temperature=0.2` and `max_tokens=1200`.
+6. **Refusal interception** — If the model refuses ("I don't have that info") but the question is a known factual lookup (hours, contact, location), the answer is replaced with the canonical OU Libraries URL.
+7. **Response** — JSON returned to the browser; the UI streams it character-by-character and renders source pills below.
 
 ---
 
@@ -95,16 +107,18 @@ Instead of searching through multiple web pages or policy documents, staff can a
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Frontend** | React 18, TypeScript | UI components, state management |
-| **Styling** | Tailwind CSS, Lucide Icons | Modern dark theme, iconography |
-| **Animation** | Framer Motion, CSS Keyframes | JARVIS logo, background particles, floating books, message transitions |
-| **Persistence** | localStorage | Chat history preserved across page refreshes |
-| **Build Tool** | Vite 6 | Dev server, HMR, API proxy, production builds |
-| **Embeddings** | OpenAI `text-embedding-3-small` | Convert text → 1536-dim vectors |
-| **LLM** | OpenAI `gpt-3.5-turbo` | Generate natural language responses |
-| **Vector DB** | Pinecone (Serverless) | Store and search document embeddings |
-| **Web Crawler** | Node.js (built-in `fetch`) | Crawl OU Libraries website and index content |
-| **Doc Indexer** | Node.js, pdfjs-dist | Extract text from local PDFs and index into Pinecone |
+| **Frontend** | React 18, TypeScript | UI composition, state |
+| **Styling** | Tailwind (CDN), Lucide Icons | Dark theme, iconography |
+| **Animation** | Framer Motion, CSS Keyframes | JARVIS logo, particles, transitions |
+| **Persistence** | localStorage | Chat history across page refreshes |
+| **Build Tool** | Vite 6 | Dev server, HMR, dev API middleware |
+| **Backend** | Vercel Serverless Functions | `api/chat.ts` runs both in dev (Vite) and prod (Vercel) |
+| **LLM** | OpenAI **gpt-4o** | Multi-doc synthesis & reasoning |
+| **Embeddings** | OpenAI `text-embedding-3-small` | 1536-dim cosine vectors |
+| **Vector DB** | Pinecone (Serverless) | Semantic search index `libby-chat-bot` |
+| **PDF Parsing** | `pdfjs-dist` | Local PDF text extraction |
+| **DOCX Parsing** | `mammoth` | Local DOCX text extraction |
+| **Web Crawler** | Node.js (built-in `fetch`) | Crawls sitemap.xml, extracts main content |
 
 ---
 
@@ -112,39 +126,45 @@ Instead of searching through multiple web pages or policy documents, staff can a
 
 ```
 libby-—-ai-powered-library-search/
-├── App.tsx                    # Main app: composes components, JARVIS logo, background animations, About modal
-├── index.tsx                  # React entry point (async App load)
-├── index.html                 # HTML template with Safari polyfills and branded loading spinner
-├── index.css                  # Single source of truth for global styles & all keyframe animations
-├── types.ts                   # TypeScript type definitions (Message, Source, RAG types)
-├── vite.config.ts             # Vite config (proxy, build settings)
-├── package.json               # Dependencies and scripts
-├── .env                       # API keys and configuration (not committed)
-├── env.example                # Template for .env
+├── App.tsx                    # JARVIS logo, background animations, About modal
+├── index.tsx                  # React entry point
+├── index.html                 # HTML template + Safari polyfills
+├── index.css                  # Global styles + keyframes (single source of truth)
+├── types.ts                   # Shared types (Message, Source, RAGResponse)
+├── vite.config.ts             # Vite config + dev middleware that mounts /api/chat
+├── vercel.json                # Vercel routing/build config
+├── package.json               # Deps & scripts
+├── .env                       # Local secrets (gitignored)
+├── .env.example               # Template
+│
+├── api/
+│   └── chat.ts                # Serverless RAG handler (greeting bypass, embedding,
+│                              # Pinecone query, gpt-4o, factual fallback,
+│                              # refusal interceptor)
 │
 ├── hooks/
-│   └── useChat.ts             # Chat state, streaming, localStorage persistence, timestamps
+│   └── useChat.ts             # Chat state, streaming sim, localStorage persistence
 │
 ├── services/
-│   ├── chatService.ts         # System prompt + RAG orchestration
-│   ├── ragService.ts          # RAG pipeline (embed → search → generate)
-│   ├── openaiService.ts       # OpenAI API wrapper (embeddings + chat)
-│   ├── pineconeService.ts     # Pinecone REST API client (via proxy)
-│   └── configService.ts       # Environment variable management
+│   ├── chatService.ts         # POSTs to /api/chat, error normalization
+│   ├── ragService.ts          # (legacy local RAG path, not used in current flow)
+│   ├── openaiService.ts       # OpenAI client wrapper (legacy)
+│   ├── pineconeService.ts     # Pinecone REST client (legacy)
+│   └── configService.ts       # Env var management
 │
 ├── components/
-│   ├── ChatWindow.tsx         # Scrollable message list with auto-scroll, scroll-to-bottom button, aria-live region
-│   ├── ChatInput.tsx          # Auto-resizing textarea, auto-focus, Shift+Enter for newlines
-│   ├── Message.tsx            # Message bubble with markdown rendering, timestamps, copy-to-clipboard
-│   ├── SourcePill.tsx         # Source citation pill (clickable link when URL available)
-│   ├── TypingIndicator.tsx    # Framer Motion animated typing dots
-│   ├── Header.tsx             # Standalone header component (available for alternate layouts)
-│   ├── AboutModal.tsx         # About Libby modal dialog with backdrop blur
-│   └── icons/                 # Custom SVG icon components (Bot, User, Send, Copy, Check, etc.)
+│   ├── ChatWindow.tsx         # Scrollable list, auto-scroll, scroll-to-bottom
+│   ├── ChatInput.tsx          # Auto-resize textarea, Shift+Enter newlines
+│   ├── Message.tsx            # Bubble + markdown render + timestamp + copy
+│   ├── SourcePill.tsx         # Source citation chip (clickable when URL present)
+│   ├── TypingIndicator.tsx    # Animated typing dots
+│   ├── AboutModal.tsx         # About modal
+│   └── icons/                 # Inline SVG icon components
 │
-├── crawl-ou-library.js        # Web crawler script (sitemap → Pinecone)
-├── index-documents.js         # PDF document indexer (local PDFs → Pinecone)
-└── functional-test.js         # Automated functional test suite
+├── crawl-ou-library.js        # Sitemap-based web crawler → Pinecone (sourceType: web)
+├── index-documents.js         # PDF + DOCX indexer → Pinecone (sourceType: document)
+├── test-pinecone.js           # Connection check + sample query
+└── functional-test.js         # End-to-end RAG test scenarios
 ```
 
 ---
@@ -153,154 +173,177 @@ libby-—-ai-powered-library-search/
 
 ### Prerequisites
 
-- **Node.js** v18+ (for built-in `fetch` support)
-- **npm** (comes with Node.js)
-- **OpenAI API Key** — [Get one here](https://platform.openai.com/api-keys)
-- **Pinecone Account** — [Sign up free](https://www.pinecone.io/) and create an index named `libby-chat-bot` with **1536 dimensions** and **cosine** metric
+- **Node.js** v18+
+- **npm**
+- **OpenAI API key** — [platform.openai.com](https://platform.openai.com/api-keys)
+- **Pinecone account** — [pinecone.io](https://www.pinecone.io/) — create a serverless index named `libby-chat-bot` with **1536 dimensions** and **cosine** metric
 
 ### Installation
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/libby-ai-powered-library-search.git
+# 1. Clone
+git clone https://github.com/ayyagarisujanreddy123/libby-ai-powered-library-search.git
 cd libby-ai-powered-library-search
 
-# 2. Install dependencies
+# 2. Install
 npm install
 
-# 3. Set up environment variables
-cp env.example .env
-# Edit .env with your API keys (see Environment Variables section below)
+# 3. Configure secrets
+cp .env.example .env
+# Edit .env with your OpenAI + Pinecone keys
 
-# 4. Index local PDF documents into Pinecone (procedure docs, handbooks)
-npm run index-docs
-
-# 5. Index the OU Libraries website into Pinecone
+# 4. Crawl the OU Libraries website (clears the index!)
 npm run crawl
 
-# 6. Re-index documents (crawl clears the index, so re-add docs after)
+# 5. Index local PDF + DOCX docs (re-adds doc vectors after the crawl wipe)
 npm run index-docs
 
-# 7. Start the development server
+# 6. Run dev server
 npm run dev
 ```
 
-The app will be available at:
+App available at:
 - **Local:** http://localhost:3000
-- **Network:** http://YOUR_IP:3000 (accessible from other devices on the same network)
+- **Network:** http://YOUR_IP:3000
 
 ---
 
 ## Environment Variables
 
-Create a `.env` file in the project root with the following variables:
+The project separates **server-side** keys (used by `api/chat.ts` and Node indexing scripts) from **legacy `VITE_` keys** (only used by the Node scripts that read them directly).
 
 ```env
-# OpenAI Configuration
-VITE_OPENAI_API_KEY=sk-proj-your-openai-api-key-here
+# Server-side (used by /api/chat.ts in dev + prod, and by Node scripts)
+OPENAI_API_KEY=sk-proj-...
+OPENAI_MODEL=gpt-4o
+EMBEDDING_MODEL=text-embedding-3-small
+PINECONE_API_KEY=pcsk_...
+PINECONE_HOST=https://your-index.svc.region.pinecone.io
+PINECONE_INDEX_NAME=libby-chat-bot
+PINECONE_ENVIRONMENT=us-east-1
 
-# Pinecone Configuration
-VITE_PINECONE_API_KEY=pcsk_your-pinecone-api-key-here
-VITE_PINECONE_ENVIRONMENT=us-east-1
-VITE_PINECONE_INDEX_NAME=libby-chat-bot
-VITE_PINECONE_HOST=https://your-index-name.svc.your-region.pinecone.io
-
-# Optional: Custom model configurations
-VITE_OPENAI_MODEL=gpt-3.5-turbo
+# Legacy VITE_ copies — only the Node indexing scripts read these.
+# Safe to keep; they are NOT bundled into the client because the scripts
+# run under Node, not Vite.
+VITE_OPENAI_API_KEY=sk-proj-...
+VITE_OPENAI_MODEL=gpt-4o
 VITE_EMBEDDING_MODEL=text-embedding-3-small
+VITE_PINECONE_API_KEY=pcsk_...
+VITE_PINECONE_HOST=https://your-index.svc.region.pinecone.io
+VITE_PINECONE_INDEX_NAME=libby-chat-bot
+VITE_PINECONE_ENVIRONMENT=us-east-1
 ```
 
-> ⚠️ **Security Note:** The `.env` file is in `.gitignore` and is never committed. In the current dev setup, the Pinecone API key is proxied server-side through Vite and is not exposed to the browser. The OpenAI API key is used client-side — for production deployment, both keys should be moved behind a backend server.
+> ⚠️ **Security:** `.env` is gitignored. The browser only ever calls `/api/chat`; OpenAI and Pinecone keys never reach the client.
 
 ---
 
 ## Document Indexer
 
-The document indexer (`index-documents.js`) reads local PDF files (handbooks, procedure docs), extracts text using Mozilla's PDF.js, chunks it, and indexes it into Pinecone with `sourceType: "document"` metadata for priority retrieval.
+`index-documents.js` reads **PDF** files (via `pdfjs-dist`) and **DOCX** files (via `mammoth`), extracts plain text, chunks it (300-word windows with 80-word overlap), embeds each chunk, and upserts to Pinecone with `sourceType: "document"`.
 
-### Indexed Documents
+### Indexed Documents (current set)
 
-| Document | Description | Chunks |
-|----------|-------------|--------|
-| **SLA Handbook** | Complete SLA procedures, policies, responsibilities | 13 |
-| **Bizzell Student Lead Handbook 2026** | Student lead guidelines and expectations | 10 |
-| **LibCal Equipment Booking** | Equipment reservation procedures | 5 |
-| **Catches/Hold Procedures** | Alma-based hold catching workflow | 2 |
-| **Troubleshooting Expired Hold Shelf** | Expired hold resolution process | 2 |
-| **Troubleshooting Overdue Reserves Catch** | Overdue reserve handling | 2 |
-| **Emergency Contact Info** | Staff emergency contacts | 1 |
-| **Guidelines for Sooner Card Building Access** | Building access procedures | 1 |
-| **Inclement Weather Volunteer Team** | Weather-related shift procedures | 1 |
-| **Research Help Desk** | Research desk procedures | 1 |
+The indexer scans `~/Desktop/Libby Data` (default) for `.pdf` and `.docx` files. Current set:
 
-### Running the Document Indexer
+- **25 PDFs** — handbooks (SLA, Bizzell Lead), troubleshooting guides, policies, forms
+- **27 DOCX files** — announcements, training docs, attendance, scheduling templates
+
+→ **52 source files → ~198 document vectors** in Pinecone (`sourceType: document`)
+
+Top sources by chunk count include: Treasure Chest, policy, SLA handbook, Training Lists for Bucket Cards, LibCal Equipment Booking, Bizzell Student Lead Handbook 2026, Circulation Policies, Troubleshooting, Catches & Hold Procedures, Abused Book Policy, Lead Training (Discharging), Library User FAQs, Mending Slips, Alma Outages, ADA/FERPA, Inclement Weather Volunteer Team, OK-Share Badges, Email Templates for Scheduling.
+
+### Running
 
 ```bash
-npm run index-docs
+npm run index-docs                       # uses default path
+node index-documents.js /custom/path     # custom path
 ```
 
-By default, it reads PDFs from `/Users/sujanreddyayyagari/Desktop/Libby Data`. You can specify a custom path:
-
-```bash
-node index-documents.js /path/to/your/pdfs
-```
-
-**Expected output:** 10 PDFs → 38 document vectors upserted (~40 seconds)
+**Expected:** 52 files → ~198 vectors (~2 minutes, ~120s on a normal connection).
 
 ---
 
 ## Web Crawler
 
-The web crawler (`crawl-ou-library.js`) populates Pinecone with content from the OU Libraries website, tagged with `sourceType: "web"`.
-
-### What It Does
-
-1. **Fetches the sitemap** from `https://libraries.ou.edu/sitemap.xml` (~322 URLs)
-2. **Filters** out staff directory pages, search results, and admin pages → ~217 pages
-3. **Crawls each page** using `fetch`, extracting the `<main>` content area
-4. **Chunks text** into ~800-token pieces with 100-token overlap
-5. **Generates embeddings** using OpenAI's `text-embedding-3-small`
-6. **Upserts vectors** with metadata including `sourceType: "web"`
-
-### Running the Crawler
+`crawl-ou-library.js` reads `https://libraries.ou.edu/sitemap.xml`, filters out staff directory / search / admin URLs, then fetches each page, extracts the main content area, chunks (~800 tokens with 100 overlap), embeds, and upserts with `sourceType: "web"`.
 
 ```bash
 npm run crawl
 ```
 
-**Expected output:** ~205 pages → ~248 vectors (~3-4 minutes)
+**Expected:** ~232 pages crawled → ~282 web vectors (~4–5 minutes).
 
-> ⚠️ **Important:** The crawler clears the entire Pinecone index before re-indexing. After running `npm run crawl`, you **must** re-run `npm run index-docs` to restore the document vectors.
+> ⚠️ **The crawler clears the entire Pinecone index before re-indexing.** Always run `npm run index-docs` afterward to restore document vectors.
+
+---
+
+## Conversational Behavior
+
+`api/chat.ts` implements three layers above raw RAG:
+
+### 1. Greeting / casual bypass
+
+Casual queries skip embedding + retrieval entirely and return a varied canned response. Detected patterns:
+
+- Greetings: `hi`, `hii`, `hello`, `hey`, `heya`, `yo`, `sup`, `wassup`, `wsup`, `howdy`, `greetings`, `aloha`
+- "Hey libby" / "hi there" / "hey friend"
+- "How are you?" / "How's it going?" / "What's up?" / "What's new?"
+- "Good morning/afternoon/evening/night" (also `morning`, `evening`, `afternoon` alone)
+- Thanks: `thanks`, `thank you`, `thx`, `ty`, `cheers`, `appreciate it`
+- Goodbye: `bye`, `see ya`, `cya`, `peace`, `take care`
+- Identity: `who are you`, `what can you do`, `help`, `tell me about yourself`
+- Acks: `ok`, `cool`, `nice`, `got it`, `sounds good`, `alright`, `aight`
+- `test`, `testing`
+
+### 2. Factual fallback for hours / contact / location
+
+Even if the model has indexed-but-stale chunks, hours-style queries hit a deterministic fallback returning the canonical libraries.ou.edu URL — preventing the bot from hallucinating outdated hours.
+
+### 3. Refusal interceptor
+
+If gpt-4o falls back to "I don't have that information…" *but* the user's question is a known factual lookup, the response is automatically swapped with the canonical URL.
 
 ---
 
 ## Testing
 
-### Automated Functional Tests
+### Manual QA Suite
 
-The project includes a functional test suite (`functional-test.js`) that tests the chatbot end-to-end across 6 employee question categories:
+A 31-question regression suite covers:
 
-| Category | # Tests | Description |
-|----------|---------|-------------|
-| 📚 Borrowing & Circulation | 3 | Check-out procedures, borrowing privileges, overdue items |
-| 💻 Technology Lending | 2 | Equipment availability, lending policies |
-| 🏛️ Library Locations & Spaces | 2 | Study rooms, building floor maps |
-| 📋 Policies & Rules | 2 | Courtesy borrower permits, non-OU student access |
-| 🔬 Research Help & Services | 2 | Research consultations, workshops |
-| ⚠️ Edge Cases | 2 | Out-of-scope questions, broad queries |
+| Category | Examples |
+|---|---|
+| Greetings | `hi`, `good evening`, `howdy partner` |
+| Identity | "who are you", "what can you help me with" |
+| Procedure | mark missing, OK-Share badge, overdue catch, shift close |
+| Policy | abused book, alumni borrowing, food at desk |
+| Multi-doc synthesis | "what systems do SLAs use", "compare SLA vs Bizzell lead" |
+| Typo robustness | "mrk a bok as missng", "expird hold on shlf" |
+| Abbreviations | `WIW shift drop`, `SharePoint stats form` |
+| Vague single-word | `hold`, `missing` |
+| Out-of-scope | weather, world cup, code requests |
+| Hours | "what time does the library open" → fallback URL |
+| Contact | "phone number for circulation desk" |
+| Patron handling | "lost book", "someone is being loud" |
+| Long synthesis | multi-step damaged-reserve scenario |
+| Hallucination probe | dean name, total book count |
 
-Run the tests:
+**Latest run: 30/31 PASS, 1 WARN** — the only WARN is "what can you help me with" which goes through RAG and answers usefully but doesn't hit the canned identity reply.
+
+### Functional tests
 
 ```bash
 node functional-test.js
 ```
 
-Each test checks:
-- **Retrieval quality** — Are the right documents being found? (cosine similarity score)
-- **Keyword relevance** — Does the response contain expected topic-specific terms?
-- **Staff tone** — Is the answer framed for employees, not patrons?
+Covers 13 employee-question scenarios spanning borrowing, technology lending, locations, policies, research help, and edge cases.
 
-**Latest results:** 12/13 passed (92% pass rate)
+### Pinecone connection check
+
+```bash
+npm run test-pinecone
+```
 
 ---
 
@@ -308,173 +351,133 @@ Each test checks:
 
 | Script | Command | Description |
 |--------|---------|-------------|
-| **Dev Server** | `npm run dev` | Start Vite dev server on port 3000 |
-| **Build** | `npm run build` | Create production build in `dist/` |
-| **Preview** | `npm run preview` | Preview production build locally |
-| **Index Docs** | `npm run index-docs` | Index local PDF documents into Pinecone (priority source) |
-| **Crawl** | `npm run crawl` | Crawl OU Libraries website and index into Pinecone |
-| **Test Pinecone** | `npm run test-pinecone` | Test Pinecone connection and query |
-
----
-
-## How It Works
-
-### System Prompt
-
-Libby uses a carefully crafted system prompt that establishes its role as an **employee assistant** with strict knowledge grounding:
-
-```
-You are Libby, an AI assistant built exclusively for OU Libraries employees.
-
-CRITICAL FRAMING:
-- Every person asking you a question is a LIBRARY EMPLOYEE on duty
-- Frame EVERY answer as instructions for the EMPLOYEE
-- Always address the user as a fellow staff member
-
-EMPLOYEE-FOCUSED LANGUAGE (MANDATORY):
-- Start responses with: "Here's what you need to do:", "Follow these steps:"
-- When involving patrons: "Tell the patron...", "Direct them to..."
-- NEVER use patron-facing language like "you can visit" or "bring your ID"
-
-KNOWLEDGE BOUNDARIES:
-- Answer ONLY using retrieved documents
-- PRIORITY: [DOCUMENT] sources over [WEBSITE] sources
-- If not in documents: "I don't have that info. Check with your supervisor."
-```
-
-### Data Source Priority
-
-Libby uses two types of indexed data, with internal documents taking priority:
-
-| Source Type | Tag | Priority | Content |
-|-------------|-----|----------|---------|
-| **Internal Documents** | `[DOCUMENT]` | ⬆️ High | SLA Handbook, Lead Handbook, procedure PDFs |
-| **Website Content** | `[WEBSITE]` | Standard | OU Libraries website (services, policies, locations) |
-
-When both sources cover the same topic, the document version is preferred as it contains official internal procedures.
-
-### Pinecone Proxy
-
-Since Pinecone's API doesn't allow direct browser requests (CORS), all Pinecone API calls are proxied through the Vite dev server:
-
-```
-Browser → /api/pinecone/query → Vite Proxy → https://pinecone-host/query
-```
-
-The proxy injects the API key server-side, keeping it out of the browser.
-
-### Vector Metadata
-
-Each vector in Pinecone stores the following metadata:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `text` | Full text chunk content | "Technology Lending: Laptops are available..." |
-| `source` | Document name or page title | "SLA handbook" or "Technology Lending" |
-| `sourceType` | Data origin | `"document"` or `"web"` |
-| `url` | Source page URL (web only) | "https://libraries.ou.edu/..." |
-| `fileName` | PDF file name (docs only) | "SLA handbook.pdf" |
-| `page` | Chunk number | 1 |
-| `totalChunks` | Total chunks for this source | 13 |
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| **Chatbot not responding** | API keys missing or invalid | Check browser console for errors. Verify `.env` has valid `VITE_OPENAI_API_KEY` and `VITE_PINECONE_API_KEY`. |
-| **Answers don't reference internal documents** | Document vectors not indexed | Run `npm run index-docs` and verify the output shows 38 vectors upserted. |
-| **All answers reference the same page** | Stale or corrupted index | Run `npm run crawl` followed by `npm run index-docs` to fully re-index. |
-| **CORS errors in browser console** | Direct Pinecone API calls blocked | Ensure Vite dev server is running (`npm run dev`). The Pinecone proxy only works in dev mode, not production builds. |
-| **Network URL not accessible** | Firewall or network mismatch | Ensure both devices are on the same Wi-Fi network. Check macOS **System Settings → Firewall** and allow Node.js connections. |
-| **PDF indexer fails on a specific file** | Corrupted or scanned-image PDF | `pdfjs-dist` can only extract text-based PDFs. Scanned image PDFs need OCR preprocessing first. |
-| **"TT: undefined function" warnings** | Font parsing warnings from PDF.js | These are harmless — text extraction still works. The warnings come from complex font tables in the PDF. |
-
-### Verifying the Pinecone Index
-
-```bash
-node test-pinecone.js
-```
-
-This connects to Pinecone, shows the total vector count, and runs a sample similarity search to confirm everything is working.
+| **Dev server** | `npm run dev` | Vite + dev API middleware on :3000 |
+| **Build** | `npm run build` | Production build to `dist/` |
+| **Preview** | `npm run preview` | Preview prod build locally |
+| **Index docs** | `npm run index-docs` | Index PDF + DOCX → Pinecone (`sourceType: document`) |
+| **Crawl** | `npm run crawl` | Crawl OU Libraries → Pinecone (`sourceType: web`); clears index first |
+| **Test Pinecone** | `npm run test-pinecone` | Connection + sample query check |
 
 ---
 
 ## Re-Indexing Workflow
 
-When you need to update the knowledge base (e.g., new procedure docs or website changes), follow this order:
+The crawler is destructive. Order matters:
 
 ```bash
-# Step 1: Re-crawl the website (⚠️ this clears the entire Pinecone index)
+# 1. Wipe + re-crawl the website
 npm run crawl
 
-# Step 2: Re-index PDF documents (restores document vectors after crawl clears them)
+# 2. Re-index local PDFs + DOCX
 npm run index-docs
 
-# Step 3: Verify the index has both sources
-node test-pinecone.js
-# Expected: ~286 vectors (248 web + 38 document)
+# 3. Verify
+npm run test-pinecone
+# Expected: ~480 vectors (282 web + 198 document)
 ```
 
-> **To add new PDF documents:** Place the new PDF files in the `Libby Data` folder and re-run `npm run index-docs`. New documents will be added alongside existing ones without affecting web vectors (unless you also re-crawl).
+To add new docs without re-crawling: drop new `.pdf` or `.docx` files into `~/Desktop/Libby Data` and re-run `npm run index-docs`. New vectors are added; web vectors are untouched.
+
+---
+
+## Deployment
+
+The project is deployed to **Vercel** at https://libby-ai-powered-library-search.vercel.app.
+
+Vercel auto-deploys on every push to `main`:
+- Frontend: built from Vite (`npm run build` → `dist/`)
+- Backend: `api/chat.ts` runs as a Vercel Serverless Function (Node runtime)
+
+### Vercel Environment Variables
+
+In **Project Settings → Environment Variables**, set:
+
+```
+OPENAI_API_KEY=sk-proj-...
+OPENAI_MODEL=gpt-4o
+EMBEDDING_MODEL=text-embedding-3-small
+PINECONE_API_KEY=pcsk_...
+PINECONE_HOST=https://...pinecone.io
+```
+
+After updating env vars, redeploy via **Deployments → ⋯ → Redeploy** so the function picks up the new values.
+
+---
+
+## Troubleshooting
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| Bot returns "I don't have that information" for everything | Pinecone index empty or wrong host | Run `npm run test-pinecone`, verify `PINECONE_HOST` |
+| Bot still uses gpt-3.5-turbo on prod | `OPENAI_MODEL` not set in Vercel dashboard | Add `OPENAI_MODEL=gpt-4o` and redeploy |
+| 429 rate-limit errors during testing | Hit OpenAI TPM ceiling for gpt-4o (30K) | Throttle calls, lower max_tokens, or upgrade plan |
+| Greetings going to RAG | Vite SSR module cache | Restart `npm run dev` |
+| PDF indexer fails on a file | Corrupted or scanned-image PDF | `pdfjs-dist` only handles text-based PDFs; needs OCR for images |
+| DOCX indexer fails | File is `.doc` (legacy) not `.docx` | Re-save as `.docx`; `mammoth` doesn't read `.doc` |
+| `node-domexception` deprecation warning on build | Transitive dep | Harmless; modern Node has native `DOMException` |
 
 ---
 
 ## Future Roadmap
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Conversation History** | Persist chat history across sessions using localStorage | ✅ Done |
-| **Message Timestamps** | Display relative timestamps on every message | ✅ Done |
-| **Markdown Rendering** | Render bold, code, and numbered lists in bot responses | ✅ Done |
-| **Copy to Clipboard** | One-click copy on bot messages with confirmation feedback | ✅ Done |
-| **Scroll-to-Bottom** | Floating button to jump to the latest message in long conversations | ✅ Done |
-| **Clickable Source Pills** | Source citations link directly to the source URL when available | ✅ Done |
-| **Accessibility** | ARIA labels, live regions, focus management, screen reader support | ✅ Done |
-| **Multi-Line Input** | Auto-resizing textarea with Shift+Enter for newlines | ✅ Done |
-| **Server-Side API Keys** | Move OpenAI and Pinecone keys behind a backend server for production security | 🔜 Planned |
-| **Tailwind Build Integration** | Replace Tailwind CDN with PostCSS/Vite build-time compilation for smaller bundles | 🔜 Planned |
-| **Admin Dashboard** | UI for managing indexed documents, viewing vector stats, and triggering re-indexing | 💡 Idea |
-| **Multi-Format Support** | Extend indexer to support `.docx`, `.txt`, and `.xlsx` files | 💡 Idea |
-| **Feedback Loop** | Allow staff to rate answers and flag incorrect responses for continuous improvement | 💡 Idea |
-| **OCR for Scanned PDFs** | Add Tesseract.js integration for indexing scanned/image-based PDF documents | 💡 Idea |
+| Feature | Status |
+|---------|--------|
+| Conversation persistence (localStorage) | ✅ Done |
+| Message timestamps | ✅ Done |
+| Markdown rendering (bold, code, numbered lists) | ✅ Done |
+| Copy-to-clipboard on bot messages | ✅ Done |
+| Scroll-to-bottom button | ✅ Done |
+| Clickable source pills | ✅ Done |
+| Accessibility (ARIA, live regions, focus) | ✅ Done |
+| Multi-line input | ✅ Done |
+| Server-side API keys via serverless function | ✅ Done |
+| DOCX support in indexer | ✅ Done |
+| Greeting / casual conversation handling | ✅ Done |
+| Factual fallback for hours/contact/location | ✅ Done |
+| gpt-4o upgrade for stronger reasoning | ✅ Done |
+| Vercel deployment | ✅ Done |
+| Tailwind build-time integration (replace CDN) | 🔜 Planned |
+| Admin dashboard (vector stats, re-indexing UI) | 💡 Idea |
+| XLSX support in indexer | 💡 Idea |
+| Feedback loop (rate / flag answers) | 💡 Idea |
+| OCR for scanned PDFs (Tesseract.js) | 💡 Idea |
+| Streaming from gpt-4o (real, not simulated) | 💡 Idea |
 
 ---
 
 ## Contributing
 
-1. **Fork** the repository
-2. **Create a feature branch:** `git checkout -b feature/your-feature`
-3. **Make your changes** and test locally with `npm run dev`
-4. **Commit:** `git commit -m "feat: description of your change"`
+1. **Fork** the repo
+2. **Create a branch:** `git checkout -b feature/your-feature`
+3. **Make changes** and test locally with `npm run dev`
+4. **Commit:** `git commit -m "feat: describe your change"`
 5. **Push:** `git push origin feature/your-feature`
-6. **Open a Pull Request** against `main`
+6. **Open a PR** against `main`
 
-### Commit Message Convention
+### Commit prefixes
 
-| Prefix | Use For |
+| Prefix | Use for |
 |--------|---------|
-| `feat:` | New features or functionality |
+| `feat:` | New features |
 | `fix:` | Bug fixes |
 | `ui:` | UI/UX changes |
-| `docs:` | Documentation updates |
-| `refactor:` | Code restructuring without behavior change |
+| `docs:` | Documentation |
+| `refactor:` | Code restructure with no behavior change |
 
 ---
 
 ## License
 
-This project was built for the **University of Oklahoma Libraries**. All internal procedure documents referenced by this application are property of OU Libraries and are not included in this repository.
+Built for the **University of Oklahoma Libraries**. Internal procedure documents referenced by the application are property of OU Libraries and are not committed to this repository.
 
 ## Acknowledgments
 
-- **OU Libraries** — For providing the internal documents and domain expertise
-- **OpenAI** — GPT-3.5-turbo for response generation and text-embedding-3-small for vector embeddings
-- **Pinecone** — Serverless vector database for semantic search
-- **Mozilla PDF.js** (`pdfjs-dist`) — PDF text extraction engine
+- **OU Libraries** — internal documents and domain expertise
+- **OpenAI** — `gpt-4o` for response generation, `text-embedding-3-small` for embeddings
+- **Pinecone** — serverless vector database
+- **Mozilla PDF.js** (`pdfjs-dist`) — PDF text extraction
+- **mammoth** — DOCX text extraction
+- **Vercel** — serverless hosting
 
 ## Authors
 
