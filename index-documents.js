@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 /**
- * Index Local PDF Documents → Pinecone
- * 
- * Reads PDF files from a local directory, extracts text, chunks it,
+ * Index Local Documents (PDF + DOCX) → Pinecone
+ *
+ * Reads PDF and DOCX files from a local directory, extracts text, chunks it,
  * generates embeddings, and upserts into Pinecone with sourceType: "document"
  * for priority retrieval over web-crawled data.
- * 
+ *
  * Usage: node index-documents.js [optional-path]
- * Default path: /Users/sujanreddyayyagari/Desktop/Lib data
+ * Default path: /Users/sujanreddyayyagari/Desktop/Libby Data
  */
 import { readFileSync, readdirSync } from 'fs';
-import { join, basename } from 'path';
+import { join, basename, extname } from 'path';
 import { createHash } from 'crypto';
 import { config } from 'dotenv';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import mammoth from 'mammoth';
 
 config();
 
@@ -52,6 +53,19 @@ async function extractPDFText(filePath) {
         pages.push(text);
     }
     return pages.join('\n\n');
+}
+
+async function extractDOCXText(filePath) {
+    const buffer = readFileSync(filePath);
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+}
+
+async function extractText(filePath) {
+    const ext = extname(filePath).toLowerCase();
+    if (ext === '.pdf') return extractPDFText(filePath);
+    if (ext === '.docx') return extractDOCXText(filePath);
+    throw new Error(`Unsupported extension: ${ext}`);
 }
 
 function chunkText(text, docName) {
@@ -133,7 +147,7 @@ async function main() {
     const docPath = process.argv[2] || DEFAULT_DOC_PATH;
     const startTime = Date.now();
 
-    console.log('📄 PDF Document Indexer → Pinecone');
+    console.log('📄 Document Indexer (PDF + DOCX) → Pinecone');
     console.log('='.repeat(50));
     console.log(`   Source: ${docPath}`);
     console.log(`   Model: ${EMBEDDING_MODEL}`);
@@ -144,21 +158,24 @@ async function main() {
     const vectorsBefore = statsBefore?.totalVectorCount || 0;
     console.log(`📊 Pinecone index currently has ${vectorsBefore} vectors\n`);
 
-    // Find PDF files
-    const files = readdirSync(docPath).filter(f => f.toLowerCase().endsWith('.pdf'));
-    console.log(`📂 Found ${files.length} PDF files:`);
+    // Find PDF + DOCX files
+    const SUPPORTED_EXT = ['.pdf', '.docx'];
+    const files = readdirSync(docPath).filter(f => SUPPORTED_EXT.includes(extname(f).toLowerCase()));
+    const pdfCount = files.filter(f => f.toLowerCase().endsWith('.pdf')).length;
+    const docxCount = files.filter(f => f.toLowerCase().endsWith('.docx')).length;
+    console.log(`📂 Found ${files.length} files (${pdfCount} PDF, ${docxCount} DOCX):`);
     files.forEach(f => console.log(`   - ${f}`));
     console.log('');
 
-    // Process each PDF
+    // Process each file
     const allChunks = [];
     for (const file of files) {
         const filePath = join(docPath, file);
-        const docName = file.replace(/\.pdf$/i, '');
+        const docName = file.replace(/\.(pdf|docx)$/i, '');
 
         console.log(`📖 Processing: ${file}`);
         try {
-            const text = await extractPDFText(filePath);
+            const text = await extractText(filePath);
             console.log(`   Extracted ${text.length} chars`);
 
             if (text.trim().length < 30) {
@@ -181,7 +198,7 @@ async function main() {
         }
     }
 
-    console.log(`\n✂️  Total: ${allChunks.length} chunks from ${files.length} PDFs\n`);
+    console.log(`\n✂️  Total: ${allChunks.length} chunks from ${files.length} files\n`);
 
     // Generate embeddings and upsert
     console.log('🧠 Generating embeddings and upserting...');
@@ -249,7 +266,7 @@ async function main() {
     console.log(`   Added:  ${vectorsAfter - vectorsBefore} document vectors`);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`\n🎉 Done in ${elapsed}s! Indexed ${files.length} PDFs (${totalUpserted} vectors)`);
+    console.log(`\n🎉 Done in ${elapsed}s! Indexed ${files.length} files (${totalUpserted} vectors)`);
     console.log('   Document data will be prioritized over web-crawled data in responses.');
 }
 
