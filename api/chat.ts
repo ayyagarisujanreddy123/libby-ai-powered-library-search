@@ -6,46 +6,116 @@ const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || process.env.VITE_EMBEDDIN
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || process.env.VITE_PINECONE_API_KEY || '';
 const PINECONE_HOST = (process.env.PINECONE_HOST || process.env.VITE_PINECONE_HOST || '').replace(/\/+$/, '');
 
-const SYSTEM_PROMPT = `You are Libby, an AI assistant built exclusively for OU Libraries employees — Student Library Assistants (SLAs), library leads, and staff.
+const SYSTEM_PROMPT = `You are Libby, an AI assistant for OU Libraries employees — Student Library Assistants (SLAs), library leads, and staff. Your job is to give clean, well-organized, immediately-usable answers from internal handbooks and the OU Libraries website.
 
-CRITICAL FRAMING:
-- Every person asking you a question is a LIBRARY EMPLOYEE on duty
-- They need help with procedures, policies, or how to handle a situation at work
-- Frame EVERY answer as instructions for the EMPLOYEE, never as advice for a patron
-- Always address the user as a fellow staff member
+═══ AUDIENCE ═══
+Every user is a LIBRARY EMPLOYEE on duty. Frame answers as instructions for the EMPLOYEE, never advice for a patron. When a patron is involved, use "tell the patron…", "direct them to…", "have them…", "instruct them to…".
 
-EMPLOYEE-FOCUSED LANGUAGE (MANDATORY):
-- Start responses with phrases like: "Here's what you need to do:", "Follow these steps:", "As staff, you should:", "The procedure for this is:"
-- When the question involves patrons, use: "Tell the patron...", "Direct them to...", "Let them know that...", "Inform the patron..."
-- NEVER use "you can visit", "you should go to", "bring your ID" — these sound patron-facing
-- ALWAYS use "instruct the patron to visit", "have them go to", "ask them to bring their ID"
+═══ HOW TO USE CONTEXT ═══
+The user message contains retrieved excerpts from internal documents [DOCUMENT] and the OU Libraries website [WEBSITE].
 
-EXAMPLES OF CORRECT TONE:
-- "Here's the hold procedure you need to follow: 1. Log into Alma and click Fulfillment..."
-- "When a patron asks about this, tell them that alumni can check out up to 30 items..."
-- "As staff, you should direct them to the Circulation Desk on the Main Floor..."
-WRONG: "You can check out books at the Circulation Desk" (sounds patron-facing)
-WRONG: "Visit the library website to reserve a room" (sounds patron-facing)
+1. Read every excerpt before answering. Map each to the question.
+2. Synthesize across multiple excerpts. Combine, summarize, connect related points. Resolve overlap by preferring [DOCUMENT] over [WEBSITE].
+3. Always try to answer with whatever relevant info is in the excerpts — even partial coverage. State assumptions when the excerpts only partially cover the topic, and note what's missing.
+4. ONLY refuse with "I don't have that information in my knowledge base. Please check with your supervisor or the OU Libraries website." when excerpts are completely unrelated to the question. Do NOT refuse over a typo, abbreviation, or short query — infer reasonable intent and answer.
+5. Cite inline in plain language: "per the SLA handbook", "according to the Catches & Hold Procedures", "per the Circulation policy". One short citation per claim is enough — don't spam.
 
-KNOWLEDGE BOUNDARIES:
-- Answer ONLY using the retrieved documents below
-- Do NOT make up or infer information not in the documents
-- PRIORITY: Internal documents (marked [DOCUMENT]) take priority over website content (marked [WEBSITE])
-- If the answer is not in the documents, say: "I don't have that information in my knowledge base. Please check with your supervisor or the OU Libraries website."
+═══ ANSWER QUALITY (MANDATORY) ═══
+EVERY answer must meet ALL of these:
+1. **Direct first sentence**: lead with the answer, not preamble. No "Sure!", "Of course!", "Great question!", "Based on the excerpts…".
+2. **Concrete and actionable**: include exact menu paths (e.g. "Fulfillment > Resource Requests > Expired Hold Shelf"), button names, system names (Alma, LibCal, WIW, Slack), and exact field labels when the excerpts provide them.
+3. **Numbered steps for procedures**: each step on its own line, blank line between steps. Steps must be sequential and complete — don't skip from step 2 to step 5.
+4. **Specific over generic**: "Click Reshelve under the item" beats "select the appropriate option".
+5. **Acknowledge gaps explicitly**: if the excerpts don't cover something the user asked, say so in a final line ("The excerpts don't specify X — confirm with your supervisor.") rather than guessing.
+6. **No fluff**: no apologies, no meta-commentary about being an AI, no "I hope this helps", no "feel free to ask".
 
-RESPONSE GUIDELINES:
-1. Be CONCISE: 2-4 key points maximum
-2. Use numbered lists (1, 2, 3) for steps
-3. Frame everything as staff instructions
-4. Keep responses under 150 words unless detailed procedures are needed
+═══ FORMATTING RULES ═══
+- Use **bold** with double asterisks for key terms, system names, and step labels (the renderer supports markdown bold)
+- Use numbered lists (1., 2., 3.) for sequential steps; each item on its own line
+- Use sub-letters (a., b., c.) for branching options inside a step
+- Do NOT use single asterisks (*), dashes (-), or bullet symbols (•) for lists
+- Inline code with backticks for credentials, URLs, and exact button text where helpful
+- Keep paragraphs tight; blank line between numbered items only when steps have multi-line detail
 
-FORMATTING RULES:
-- Start with a direct, employee-framed answer
-- Each numbered point on a separate line with a line break after
-- DO NOT use asterisks (*), dashes (-), or bullet points
-- Keep each point brief and actionable
+═══ LENGTH ═══
+- Quick policy lookups: 2–4 sentences
+- Standard procedures: 4–8 numbered steps
+- Complex multi-branch procedures: as long as needed, but no padding
+- Stop when the question is answered. Don't append "Hope this helps" or summary paragraphs.
 
-Be professional and helpful — you're talking to a colleague.`;
+═══ TONE ═══
+Professional, collegial, focused. You are talking to a coworker on shift who needs the answer fast.`;
+
+function isCasualQuery(text: string): boolean {
+  const t = text.toLowerCase().trim().replace(/[?!.,]+$/, '');
+  if (t.length === 0) return true;
+  if (t.length > 60) return false; // long queries unlikely casual
+  const patterns = [
+    /^(hi|hii+|hello+|hey+|heya|yo+|sup|wassup|wassuup+|wsup|howdy|greetings|aloha)\b/,
+    /^(hi|hello|hey)\s+(libby|there|friend|bot|y'?all)/,
+    /^how (are|r|do you do|have you been) (you|u|ya|things)?/,
+    /^how('s| is| are)\s+(it|things|you|u|ya|life|your day)/,
+    /^how('s| is)\s+everything/,
+    /^what'?s\s+(up|new|good|happening|going on|crackin)\b/,
+    /^what is\s+up\b/,
+    /^(good|gud|gd)\s+(morning|afternoon|evening|night|day)/,
+    /^morning\b|^evening\b|^afternoon\b/,
+    /^(thanks|thank you|thx|ty|cheers|appreciate (it|that)|much obliged)\b/,
+    /^(bye|goodbye|see ya|cya|peace|laters|later|take care)\b/,
+    /^(who are you|what are you|what can you do|^help$|what do you do|introduce yourself|tell me about yourself)/,
+    /^(nice to meet|pleased to meet)/,
+    /^(how can|how do) (i|you) (use|start)/,
+    /^test(ing)?$/,
+    /^(ok|okay|cool|nice|got it|sounds good|alright|aight)\b/,
+  ];
+  return patterns.some((p) => p.test(t));
+}
+
+function factualFallback(text: string): string | null {
+  const t = text.toLowerCase();
+  if (/\b(hour|hours|open|close|closing|opening|closed|when (does|do|is)|what time)\b/.test(t)) {
+    return 'For current branch hours, point them to https://libraries.ou.edu/visit-study/hours — hours change by branch and semester, so always check the live page rather than memorized info.';
+  }
+  if (/\b(phone|phone number|contact|email address|call)\b.*\b(librar|circulation|reference)/.test(t) || /\b(librar|circulation|reference)\b.*\b(phone|number|contact|email)/.test(t)) {
+    return 'For staff directory and contact info, see https://libraries.ou.edu/about-us/staff-directory and the Circulation Desk contact at https://libraries.ou.edu/help/contact-us.';
+  }
+  if (/\b(address|location|where is|directions|parking|map)\b/.test(t) && /\b(library|libraries|bizzell|branch)/.test(t)) {
+    return 'Bizzell Memorial Library is at 401 W. Brooks St., Norman, OK 73019. Branch locations and maps: https://libraries.ou.edu/our-libraries.';
+  }
+  return null;
+}
+
+function casualReply(text: string): string {
+  const t = text.toLowerCase().trim();
+
+  if (/^(thanks|thank you|thx|ty|cheers|appreciate|much obliged)/.test(t)) {
+    return "You're welcome — happy to help. Anything else you need?";
+  }
+  if (/^(bye|goodbye|see ya|cya|peace|laters|later|take care)/.test(t)) {
+    return 'Take care. Ping me anytime you need a quick procedure lookup.';
+  }
+  if (/who are you|what are you|what can you do|^help$|what do you do|introduce yourself|tell me about yourself|how (can|do) (i|you) (use|start)/.test(t)) {
+    return "I'm **Libby** — an AI assistant built for OU Libraries staff. I can help you with:\n\n1. Circulation procedures (checkout, returns, holds, catches)\n2. SLA duties, scheduling, and shift coverage\n3. Troubleshooting (expired holds, overdue reserves, missing items)\n4. LibCal equipment booking and room reservations\n5. OK-Share, alumni borrowing, and building access policies\n6. Anything from the staff handbooks or libraries.ou.edu\n\nAsk me a procedure question and I'll walk you through it.";
+  }
+  if (/^how (are|r|do you do|have you been)|^how('s| is| are)\s+(it|things|you|u|ya|life|your day)|^how('s| is)\s+everything|^what'?s\s+(up|new|good|happening|going on|crackin)/.test(t)) {
+    return "Doing well, thanks for asking. Ready to help you with a procedure, policy, or troubleshooting question — what's on the desk today?";
+  }
+  if (/^(good|gud|gd)\s+(morning|afternoon|evening|night|day)|^morning|^evening|^afternoon/.test(t)) {
+    return "Good morning. Let me know what library procedure or policy I can help you with.";
+  }
+  if (/^(nice to meet|pleased to meet)/.test(t)) {
+    return "Nice to meet you too. I'm Libby — ask me anything about OU Libraries procedures, policies, or troubleshooting.";
+  }
+  if (/^(ok|okay|cool|nice|got it|sounds good|alright|aight)/.test(t)) {
+    return "Got it. What else can I help you with?";
+  }
+  if (/^test/.test(t)) {
+    return "Connection looks good. Ask me a real procedure question whenever you're ready.";
+  }
+
+  // Default greeting
+  return "Hey — I'm **Libby**, your OU Libraries staff assistant. Ask me about circulation procedures, holds, SLA duties, scheduling, troubleshooting, or any library policy.";
+}
 
 type Match = {
   id: string;
@@ -98,8 +168,8 @@ async function chatCompletion(userPrompt: string): Promise<string> {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.3,
-      max_tokens: 500,
+      temperature: 0.2,
+      max_tokens: 1200,
     }),
   });
   if (!res.ok) {
@@ -170,21 +240,40 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    const embedding = await generateEmbedding(message);
-    const matches = await pineconeQuery(embedding, 5);
-    const filtered = matches.filter((m) => (m.score || 0) > 0.3);
-    const docs = filtered.length > 0 ? filtered : matches;
-
     let answer: string;
     let sources: ReturnType<typeof extractSources> = [];
 
-    if (docs.length === 0) {
-      answer = "I don't have that information in my knowledge base. Please check with your supervisor or the OU Libraries website.";
+    if (isCasualQuery(message)) {
+      answer = casualReply(message);
     } else {
-      const context = buildContext(docs);
-      const userPrompt = `Context from library documents:\n${context}\n\nQuestion: ${message}\n\nProvide a concise, well-organized answer using only the information from the context above. Use numbered lists (1, 2, 3) if listing procedures or multiple points. Each numbered point MUST be on a separate line. Do not use asterisks, dashes, or bullet points.`;
-      answer = await chatCompletion(userPrompt);
-      sources = extractSources(docs);
+      const embedding = await generateEmbedding(message);
+      const matches = await pineconeQuery(embedding, 8);
+      const strong = matches.filter((m) => (m.score || 0) >= 0.4);
+      const usable = strong.length > 0 ? strong : matches.filter((m) => (m.score || 0) >= 0.25);
+
+      if (usable.length === 0) {
+        const fb = factualFallback(message);
+        answer = fb ?? "I don't have that information in my knowledge base. Please check with your supervisor or the OU Libraries website.";
+      } else {
+        const context = buildContext(usable);
+        const userPrompt = `Retrieved context from OU Libraries documents and website:\n\n${context}\n\n---\n\nEmployee question: ${message}\n\nUsing the excerpts above, answer the employee's question. Synthesize across multiple excerpts when needed. If excerpts only partially cover the topic, give what's there and note what's missing. Use numbered lists (each on its own line) for procedures or distinct points. No asterisks, dashes, or bullet symbols.`;
+        answer = await chatCompletion(userPrompt);
+        sources = extractSources(usable);
+
+        // If LLM refused but query is a known factual lookup, swap in canonical URL
+        const refused =
+          /don'?t have/i.test(answer) ||
+          /not in (my|the) knowledge base/i.test(answer) ||
+          /(excerpts|context) (do not|don'?t) (specify|cover|include|mention|provide)/i.test(answer) ||
+          /please check (with )?(your supervisor|the ou libraries website)/i.test(answer);
+        if (refused) {
+          const fb = factualFallback(message);
+          if (fb) {
+            answer = fb;
+            sources = [];
+          }
+        }
+      }
     }
 
     res.statusCode = 200;
