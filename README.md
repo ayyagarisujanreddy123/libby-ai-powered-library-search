@@ -1,5 +1,5 @@
 
-# Libby — AI-Powered Library Search
+# Libby — AI-Powered Library Search 
 
 **Libby** is an AI chatbot built for **OU Libraries employees** — Student Library Assistants (SLAs), library leads, and staff. It uses Retrieval-Augmented Generation (RAG) to answer questions about procedures, policies, services, and locations by searching across **internal staff documents** (handbooks, troubleshooting guides, policies in PDF and DOCX) and **crawled OU Libraries website content**. Internal documents are prioritized over web content for accuracy.
 
