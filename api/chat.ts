@@ -6,6 +6,19 @@ const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || process.env.VITE_EMBEDDIN
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || process.env.VITE_PINECONE_API_KEY || '';
 const PINECONE_HOST = (process.env.PINECONE_HOST || process.env.VITE_PINECONE_HOST || '').replace(/\/+$/, '');
 
+// ── Retrieval tuning ──────────────────────────────────────────────
+const RETRIEVE_TOPK = 8;       // candidates pulled from Pinecone
+const CONTEXT_MAX = 5;         // chunks actually sent to the LLM after dedup/rerank
+const STRONG_SCORE = 0.45;     // primary relevance floor (was 0.4 — dropped 0.45 noise)
+const WEAK_SCORE = 0.25;       // fallback floor when nothing clears STRONG
+const CHUNK_CHARS = 1800;      // per-chunk char cap in the prompt (trims oversized chunks)
+
+// In-memory embedding cache. Survives across warm serverless invocations on the
+// same instance; a cold start simply rebuilds it. Bounded FIFO to cap memory.
+const EMBED_CACHE = new Map<string, number[]>();
+const EMBED_CACHE_MAX = 256;
+const normQuery = (q: string) => q.toLowerCase().replace(/\s+/g, ' ').trim();
+
 const SYSTEM_PROMPT = `You are Libby, an AI assistant for OU Libraries employees — Student Library Assistants (SLAs), library leads, and staff. Your job is to give clean, well-organized, immediately-usable answers from internal handbooks and the OU Libraries website.
 
 ═══ AUDIENCE ═══
@@ -124,6 +137,22 @@ type Match = {
 };
 
 async function generateEmbedding(text: string): Promise<number[]> {
+  const key = normQuery(text);
+  const cached = EMBED_CACHE.get(key);
+  if (cached) return cached;
+
+  const embedding = await embedRequest(text);
+
+  // Bounded FIFO eviction
+  if (EMBED_CACHE.size >= EMBED_CACHE_MAX) {
+    const oldest = EMBED_CACHE.keys().next().value;
+    if (oldest !== undefined) EMBED_CACHE.delete(oldest);
+  }
+  EMBED_CACHE.set(key, embedding);
+  return embedding;
+}
+
+async function embedRequest(text: string): Promise<number[]> {
   const res = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
     headers: {
@@ -179,10 +208,28 @@ async function chatCompletion(userPrompt: string): Promise<string> {
   return data.choices[0]?.message?.content || '';
 }
 
+// Dedup near-identical chunks, prefer [DOCUMENT] over [WEBSITE] at equal relevance,
+// then keep the top CONTEXT_MAX. Shrinks the prompt → faster + cheaper generation.
+function rerank(matches: Match[]): Match[] {
+  const seen = new Map<string, Match>();
+  for (const m of matches) {
+    const text = ((m.metadata?.text || m.metadata?.content || '') as string);
+    // Content-only key, punctuation/case/whitespace-insensitive: catches the same
+    // chunk indexed under different source names or with trivial punctuation diffs.
+    const key = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 200);
+    const prev = seen.get(key);
+    if (!prev || (m.score || 0) > (prev.score || 0)) seen.set(key, m);
+  }
+  const docFirst = (m: Match) => (m.metadata?.sourceType === 'document' ? 0.03 : 0);
+  return [...seen.values()]
+    .sort((a, b) => ((b.score || 0) + docFirst(b)) - ((a.score || 0) + docFirst(a)))
+    .slice(0, CONTEXT_MAX);
+}
+
 function buildContext(matches: Match[]): string {
   return matches
     .map((m) => {
-      const text = m.metadata?.text || m.metadata?.content || '';
+      const text = ((m.metadata?.text || m.metadata?.content || '') as string).slice(0, CHUNK_CHARS);
       const label = m.metadata?.sourceType === 'document' ? '[DOCUMENT]' : '[WEBSITE]';
       const src = m.metadata?.source || 'Unknown';
       return `${label} Source: ${src}\n${text}`;
@@ -247,9 +294,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       answer = casualReply(message);
     } else {
       const embedding = await generateEmbedding(message);
-      const matches = await pineconeQuery(embedding, 8);
-      const strong = matches.filter((m) => (m.score || 0) >= 0.4);
-      const usable = strong.length > 0 ? strong : matches.filter((m) => (m.score || 0) >= 0.25);
+      const matches = await pineconeQuery(embedding, RETRIEVE_TOPK);
+      const strong = matches.filter((m) => (m.score || 0) >= STRONG_SCORE);
+      const passing = strong.length > 0 ? strong : matches.filter((m) => (m.score || 0) >= WEAK_SCORE);
+      const usable = rerank(passing);
 
       if (usable.length === 0) {
         const fb = factualFallback(message);
