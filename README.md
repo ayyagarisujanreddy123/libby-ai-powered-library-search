@@ -41,6 +41,7 @@ Instead of digging through handbooks or website pages, staff ask Libby in natura
 ### Key Features
 
 - 🤖 **RAG with gpt-4o** — Strong multi-document synthesis grounded in indexed sources
+- ⚡ **Optimized Retrieval** — In-memory embedding cache (warm repeats skip the ~0.8s embed round-trip), content-level chunk dedup/rerank, and a trimmed top-5 context window for faster, cheaper generation
 - 👥 **Employee-Focused** — Frames answers as staff instructions ("Tell the patron…", "Direct them to…")
 - 📄 **Mixed Source Indexing** — Indexes both PDF and DOCX handbooks plus the crawled OU Libraries website
 - 💬 **Conversational Greetings** — Casual queries (`hi`, `thanks`, `how are you`, `wassup`, etc.) bypass RAG and get friendly canned replies
@@ -71,12 +72,14 @@ Instead of digging through handbooks or website pages, staff ask Libby in natura
 │                                                          │
 │   1. isCasualQuery? → return canned reply (no RAG)       │
 │   2. embed query (text-embedding-3-small, 1536-dim)      │
+│      └ in-memory cache: warm repeats skip the embed call │
 │   3. Pinecone query (topK=8, two-tier scoring)           │
-│   4. Build [DOCUMENT]/[WEBSITE] context, doc-priority     │
-│   5. gpt-4o chat completion with strict system prompt    │
-│   6. factualFallback() catches hours/contact/location    │
+│   4. Dedup + rerank → trim to top-5 context chunks        │
+│   5. Build [DOCUMENT]/[WEBSITE] context, doc-priority     │
+│   6. gpt-4o chat completion with strict system prompt    │
+│   7. factualFallback() catches hours/contact/location    │
 │      refusals → swap in canonical libraries.ou.edu URL   │
-│   7. Return { answer, sources }                          │
+│   8. Return { answer, sources }                          │
 └─────────────┬────────────────────────────┬───────────────┘
               │                            │
               ▼                            ▼
@@ -84,9 +87,9 @@ Instead of digging through handbooks or website pages, staff ask Libby in natura
    │   Pinecone DB    │           │    OpenAI API    │
    │ (Vector Search)  │           │ Embeddings + LLM │
    │                  │           │                  │
-   │  ~480 vectors    │           │ embedding-3-small│
+   │  ~501 vectors    │           │ embedding-3-small│
    │  282 web +       │           │ gpt-4o           │
-   │  198 doc/docx    │           │                  │
+   │  219 doc/docx    │           │                  │
    │  1536-dim cosine │           │                  │
    └──────────────────┘           └──────────────────┘
 ```
@@ -94,12 +97,13 @@ Instead of digging through handbooks or website pages, staff ask Libby in natura
 ### RAG Pipeline
 
 1. **Conversational gate** — Greetings, identity questions, thanks, and other casual inputs are detected by regex and answered directly without hitting the index.
-2. **Embedding** — Non-casual queries are embedded with OpenAI `text-embedding-3-small` (1536-dim).
-3. **Vector search** — Pinecone returns top 8 matches with cosine similarity. A two-tier filter prefers matches with score ≥ 0.4; falls back to ≥ 0.25 if no strong matches.
-4. **Context assembly** — Chunks are labeled `[DOCUMENT]` or `[WEBSITE]` with source name, joined with separators.
-5. **LLM generation** — gpt-4o is given the structured system prompt + context, with `temperature=0.2` and `max_tokens=1200`.
-6. **Refusal interception** — If the model refuses ("I don't have that info") but the question is a known factual lookup (hours, contact, location), the answer is replaced with the canonical OU Libraries URL.
-7. **Response** — JSON returned to the browser; the UI streams it character-by-character and renders source pills below.
+2. **Embedding** — Non-casual queries are embedded with OpenAI `text-embedding-3-small` (1536-dim). A bounded in-memory cache (FIFO, 256 entries) returns the vector instantly for repeat queries on a warm instance, skipping the ~0.8s OpenAI round-trip.
+3. **Vector search** — Pinecone returns top 8 matches with cosine similarity. A two-tier filter prefers matches with score ≥ 0.45; falls back to ≥ 0.25 if no strong matches.
+4. **Dedup + rerank** — Near-identical chunks (same passage indexed under different source names, or trivial punctuation diffs) are collapsed on a content key; remaining matches are sorted with a slight `[DOCUMENT]`-over-`[WEBSITE]` preference and trimmed to the top 5.
+5. **Context assembly** — Surviving chunks are labeled `[DOCUMENT]` or `[WEBSITE]` with source name (per-chunk capped at 1800 chars), joined with separators.
+6. **LLM generation** — gpt-4o is given the structured system prompt + context, with `temperature=0.2` and `max_tokens=1200`.
+7. **Refusal interception** — If the model refuses ("I don't have that info") but the question is a known factual lookup (hours, contact, location), the answer is replaced with the canonical OU Libraries URL.
+8. **Response** — JSON returned to the browser; the UI streams it character-by-character and renders source pills below.
 
 ---
 
@@ -249,7 +253,7 @@ The indexer scans `~/Desktop/Libby Data` (default) for `.pdf` and `.docx` files.
 - **25 PDFs** — handbooks (SLA, Bizzell Lead), troubleshooting guides, policies, forms
 - **27 DOCX files** — announcements, training docs, attendance, scheduling templates
 
-→ **52 source files → ~198 document vectors** in Pinecone (`sourceType: document`)
+→ **~59 source files → ~219 document vectors** in Pinecone (`sourceType: document`), including a supplementary batch of circulation/reserves DOCX guides (Bizzell Circulation FAQ, Checkout Durations, Circulation Forms & Slips, Courtesy Borrowers Permit, How to Mark Items Missing, LTP Info Reporting, Technology Reserves Procedures)
 
 Top sources by chunk count include: Treasure Chest, policy, SLA handbook, Training Lists for Bucket Cards, LibCal Equipment Booking, Bizzell Student Lead Handbook 2026, Circulation Policies, Troubleshooting, Catches & Hold Procedures, Abused Book Policy, Lead Training (Discharging), Library User FAQs, Mending Slips, Alma Outages, ADA/FERPA, Inclement Weather Volunteer Team, OK-Share Badges, Email Templates for Scheduling.
 
@@ -260,7 +264,7 @@ npm run index-docs                       # uses default path
 node index-documents.js /custom/path     # custom path
 ```
 
-**Expected:** 52 files → ~198 vectors (~2 minutes, ~120s on a normal connection).
+**Expected:** ~59 files → ~219 vectors (~2 minutes, ~120s on a normal connection).
 
 ---
 
@@ -373,7 +377,7 @@ npm run index-docs
 
 # 3. Verify
 npm run test-pinecone
-# Expected: ~480 vectors (282 web + 198 document)
+# Expected: ~501 vectors (282 web + 219 document)
 ```
 
 To add new docs without re-crawling: drop new `.pdf` or `.docx` files into `~/Desktop/Libby Data` and re-run `npm run index-docs`. New vectors are added; web vectors are untouched.
@@ -435,6 +439,7 @@ After updating env vars, redeploy via **Deployments → ⋯ → Redeploy** so th
 | Greeting / casual conversation handling | ✅ Done |
 | Factual fallback for hours/contact/location | ✅ Done |
 | gpt-4o upgrade for stronger reasoning | ✅ Done |
+| Retrieval optimization (embedding cache, dedup/rerank, trimmed context) | ✅ Done |
 | Vercel deployment | ✅ Done |
 | Tailwind build-time integration (replace CDN) | 🔜 Planned |
 | Admin dashboard (vector stats, re-indexing UI) | 💡 Idea |
